@@ -1,55 +1,54 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-title í•œêµ­ì–´ AI ìœ¤ë¬¸ ì—ì´ì „íŠ¸ - ì„¤ì¹˜
+title ÇÑ±¹¾î AI À±¹® ¿¡ÀÌÀüÆ® - ¼³Ä¡
 echo ============================================
-echo   í•œêµ­ì–´ AI ìœ¤ë¬¸ ì—ì´ì „íŠ¸ - ì²˜ìŒ í•œ ë²ˆ ì„¤ì¹˜
+echo   ÇÑ±¹¾î AI À±¹® ¿¡ÀÌÀüÆ® - Ã³À½ ÇÑ ¹ø ¼³Ä¡
 echo ============================================
 echo.
-echo [1/4] Python í™•ì¸ Â· í”„ë¡œê·¸ëž¨ ì¤€ë¹„
+echo [1/4] Python È®ÀÎ ¡¤ ÇÁ·Î±×·¥ ÁØºñ
 python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>nul || (
   echo.
-  echo  Python 3.10 ì´ìƒì´ í•„ìš”í•©ë‹ˆë‹¤.
-  echo  https://www.python.org/downloads/ ì—ì„œ ì„¤ì¹˜í•˜ì„¸ìš”.
-  echo  ì„¤ì¹˜ ì²« í™”ë©´ ì•„ëž˜ì˜ "Add python.exe to PATH" ë¥¼ ê¼­ ì²´í¬í•˜ì„¸ìš”.
-  echo  ì„¤ì¹˜ê°€ ëë‚˜ë©´ ì´ ì°½ì„ ë‹«ê³  setup.bat ì„ ë‹¤ì‹œ ë”ë¸”í´ë¦­í•˜ì„¸ìš”.
+  echo  Python 3.10 ÀÌ»óÀÌ ÇÊ¿äÇÕ´Ï´Ù.
+  echo  https://www.python.org/downloads/ ¿¡¼­ ¼³Ä¡ÇÏ¼¼¿ä.
+  echo  ¼³Ä¡ Ã¹ È­¸é ¾Æ·¡ÀÇ "Add python.exe to PATH" ¸¦ ²À Ã¼Å©ÇÏ¼¼¿ä.
+  echo  ¼³Ä¡°¡ ³¡³ª¸é ÀÌ Ã¢À» ´Ý°í setup.bat À» ´Ù½Ã ´õºíÅ¬¸¯ÇÏ¼¼¿ä.
   start "" https://www.python.org/downloads/
   pause & exit /b 1
 )
 if not exist .venv python -m venv .venv
 .venv\Scripts\python -m pip install -q --upgrade pip
-.venv\Scripts\python -m pip install -q -r requirements.txt || (echo pip ì„¤ì¹˜ ì‹¤íŒ¨ - ì¸í„°ë„· ì—°ê²°ì„ í™•ì¸í•˜ê³  ë‹¤ì‹œ ì‹¤í–‰í•˜ì„¸ìš”. & pause & exit /b 1)
-echo       ì™„ë£Œ
+.venv\Scripts\python -m pip install -q -r requirements.txt || (echo pip ¼³Ä¡ ½ÇÆÐ - ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇÏ°í ´Ù½Ã ½ÇÇàÇÏ¼¼¿ä. & pause & exit /b 1)
+echo       ¿Ï·á
 echo.
-echo [2/4] Codex CLI í™•ì¸ (ChatGPT ê³„ì •ìœ¼ë¡œ AIë¥¼ ë¶€ë¥´ëŠ” ë„êµ¬)
+echo [2/4] Codex CLI È®ÀÎ (ChatGPT °èÁ¤À¸·Î AI¸¦ ºÎ¸£´Â µµ±¸)
 set "PATH=%APPDATA%\npm;%PATH%"
 where codex >nul 2>nul || (
   where npm >nul 2>nul || (
     echo.
-    echo  Node.js ê°€ í•„ìš”í•©ë‹ˆë‹¤.
-    echo  https://nodejs.org/ ì—ì„œ LTS ë²„ì „ì„ ì„¤ì¹˜í•œ ë’¤ setup.bat ì„ ë‹¤ì‹œ ë”ë¸”í´ë¦­í•˜ì„¸ìš”.
+    echo  Node.js °¡ ÇÊ¿äÇÕ´Ï´Ù.
+    echo  https://nodejs.org/ ¿¡¼­ LTS ¹öÀüÀ» ¼³Ä¡ÇÑ µÚ setup.bat À» ´Ù½Ã ´õºíÅ¬¸¯ÇÏ¼¼¿ä.
     start "" https://nodejs.org/
     pause & exit /b 1
   )
   call npm install -g @openai/codex
 )
-where codex >nul 2>nul || (echo Codex CLI ì„¤ì¹˜ ì‹¤íŒ¨ - ì°½ì„ ë‹«ê³  setup.bat ì„ ë‹¤ì‹œ ì‹¤í–‰í•´ ë³´ì„¸ìš”. & pause & exit /b 1)
-echo       ì™„ë£Œ
+where codex >nul 2>nul || (echo Codex CLI ¼³Ä¡ ½ÇÆÐ - Ã¢À» ´Ý°í setup.bat À» ´Ù½Ã ½ÇÇàÇØ º¸¼¼¿ä. & pause & exit /b 1)
+echo       ¿Ï·á
 echo.
-echo [3/4] Codex ë¡œê·¸ì¸ í™•ì¸
+echo [3/4] Codex ·Î±×ÀÎ È®ÀÎ
 call codex login status >nul 2>nul || (
-  echo  ë¸Œë¼ìš°ì €ê°€ ì—´ë¦¬ë©´ ChatGPT ê³„ì •ìœ¼ë¡œ ë¡œê·¸ì¸í•˜ì„¸ìš”.
-  echo  "ë¡œê·¸ì¸ ì™„ë£Œ" í™”ë©´ì´ ëœ¨ë©´ ì´ ì°½ìœ¼ë¡œ ëŒì•„ì˜¤ë©´ ë©ë‹ˆë‹¤.
+  echo  ºê¶ó¿ìÀú°¡ ¿­¸®¸é ChatGPT °èÁ¤À¸·Î ·Î±×ÀÎÇÏ¼¼¿ä.
+  echo  "·Î±×ÀÎ ¿Ï·á" È­¸éÀÌ ¶ß¸é ÀÌ Ã¢À¸·Î µ¹¾Æ¿À¸é µË´Ï´Ù.
   call codex login
 )
 call codex login status
 echo.
-echo [4/4] ìž‘ì—… í´ë” ì¤€ë¹„
+echo [4/4] ÀÛ¾÷ Æú´õ ÁØºñ
 if not exist workspace mkdir workspace
-echo       ì™„ë£Œ
+echo       ¿Ï·á
 echo.
 echo ============================================
-echo   ì„¤ì¹˜ ë. ì´ì œ run.bat ì„ ë”ë¸”í´ë¦­í•˜ì„¸ìš”.
-echo   (ë¸Œë¼ìš°ì €ì—ì„œ http://localhost:8767/ ê°€ ì—´ë¦½ë‹ˆë‹¤)
+echo   ¼³Ä¡ ³¡. ÀÌÁ¦ run.bat À» ´õºíÅ¬¸¯ÇÏ¼¼¿ä.
+echo   (ºê¶ó¿ìÀú¿¡¼­ http://localhost:8767/ °¡ ¿­¸³´Ï´Ù)
 echo ============================================
 pause

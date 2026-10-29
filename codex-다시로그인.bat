@@ -1,13 +1,12 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 set "PATH=%APPDATA%\npm;%PATH%"
-echo Codex(ChatGPT) ë¡œê·¸ì¸ì„ ë‹¤ì‹œ í•©ë‹ˆë‹¤.
-echo "Failed to refresh token / 401 / sign in again" ì˜¤ë¥˜ê°€ ë‚  ë•Œ ì“°ì„¸ìš”.
+echo Codex(ChatGPT) ·Î±×ÀÎÀ» ´Ù½Ã ÇÕ´Ï´Ù.
+echo "Failed to refresh token / 401 / sign in again" ¿À·ù°¡ ³¯ ¶§ ¾²¼¼¿ä.
 echo.
 call codex logout
 call codex login
 echo.
 call codex login status
-echo ëë‚˜ë©´ ì½˜ì†”(http://localhost:8767/)ì—ì„œ ë©ˆì·„ë˜ ë²„íŠ¼ì„ ë‹¤ì‹œ ëˆ„ë¥´ì„¸ìš”.
+echo ³¡³ª¸é ÄÜ¼Ö(http://localhost:8767/)¿¡¼­ ¸ØÃè´ø ¹öÆ°À» ´Ù½Ã ´©¸£¼¼¿ä.
 pause

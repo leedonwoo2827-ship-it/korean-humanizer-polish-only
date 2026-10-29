@@ -1,17 +1,16 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
-title í•œêµ­ì–´ AI ìœ¤ë¬¸ ì—ì´ì „íŠ¸ - ì´ ì°½ì„ ë‹«ì§€ ë§ˆì„¸ìš”
-if not exist .venv\Scripts\python.exe (echo ë¨¼ì € setup.bat ì„ ë”ë¸”í´ë¦­í•´ ì„¤ì¹˜í•˜ì„¸ìš”. & pause & exit /b 1)
+title ÇÑ±¹¾î AI À±¹® ¿¡ÀÌÀüÆ® - ÀÌ Ã¢À» ´ÝÁö ¸¶¼¼¿ä
+if not exist .venv\Scripts\python.exe (echo ¸ÕÀú setup.bat À» ´õºíÅ¬¸¯ÇØ ¼³Ä¡ÇÏ¼¼¿ä. & pause & exit /b 1)
 set "PATH=%APPDATA%\npm;%PATH%"
 set PYTHONUTF8=1
-echo í•œêµ­ì–´ AI ìœ¤ë¬¸ ì—ì´ì „íŠ¸ ì½˜ì†”ì„ ì—½ë‹ˆë‹¤.
+echo ÇÑ±¹¾î AI À±¹® ¿¡ÀÌÀüÆ® ÄÜ¼ÖÀ» ¿±´Ï´Ù.
 echo.
-echo   ì£¼ì†Œ: http://localhost:8767/
-echo   ë¸Œë¼ìš°ì €ê°€ ì•ˆ ì—´ë¦¬ë©´ ìœ„ ì£¼ì†Œë¥¼ ì£¼ì†Œì°½ì— ì§ì ‘ ìž…ë ¥í•˜ì„¸ìš”.
-echo   (127.0.0.1 ì´ ì•„ë‹ˆë¼ localhost ë¡œ ìž…ë ¥í•´ì•¼ í•©ë‹ˆë‹¤)
+echo   ÁÖ¼Ò: http://localhost:8767/
+echo   ºê¶ó¿ìÀú°¡ ¾È ¿­¸®¸é À§ ÁÖ¼Ò¸¦ ÁÖ¼ÒÃ¢¿¡ Á÷Á¢ ÀÔ·ÂÇÏ¼¼¿ä.
+echo   (127.0.0.1 ÀÌ ¾Æ´Ï¶ó localhost ·Î ÀÔ·ÂÇØ¾ß ÇÕ´Ï´Ù)
 echo.
-echo ì´ ê²€ì€ ì°½ì€ ë„ì§€ ë§ê³  ìµœì†Œí™”í•´ ë‘ì„¸ìš”. ë„ë©´ ì½˜ì†”ë„ ë©ˆì¶¥ë‹ˆë‹¤.
+echo ÀÌ °ËÀº Ã¢Àº ²ôÁö ¸»°í ÃÖ¼ÒÈ­ÇØ µÎ¼¼¿ä. ²ô¸é ÄÜ¼Öµµ ¸ØÃä´Ï´Ù.
 echo.
 .venv\Scripts\python -m khum.server
 pause
