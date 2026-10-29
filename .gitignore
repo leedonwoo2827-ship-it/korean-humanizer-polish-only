@@ -1,0 +1,14 @@
+# 입력·산출물·보안파일은 올리지 않는다 (코드만 커밋)
+workspace/
+backup/
+*.log
+*.pdf
+*.hwp
+*.hwpx
+*.docx
+*.xlsx
+.env
+.venv/
+__pycache__/
+*.pyc
+.claude/

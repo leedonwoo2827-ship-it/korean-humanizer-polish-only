@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>한국어 AI 윤문</title>
+<style>
+:root{
+  --rail:#201e1b;--rail-fg:#efece5;--rail-mute:#b3aca1;--rail-dim:#8a8378;--rail-brand:#c9a46a;--rail-hover:#302e2b;--rail-active:#36302a;--rail-line:rgb(255 255 255/.09);
+  --paper:#f7f5f1;--card:#fffdfa;--fg:#24211d;--mute:#6b645a;--line:#e4ded4;--brand:#8a5a2b;--wash:#f3ebe0;
+  --ok:#2f6b3a;--okbg:#e5f1e3;--bad:#b42318;--badbg:#fbe9e6;--warn:#8a5a00;--warnbg:#fbf0d9;--log:#1b1916;--logfg:#e6e0d6;
+  --ins:#dff3e1;--insfg:#1e5b2a;--del:#fbe1dd;--delfg:#a3271b;--s1:#f8d4cf;--s2:#f7e6c4;--s3:#e8e4dc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#161412;--card:#1e1c19;--fg:#ece7df;--mute:#a59d91;--line:#34302b;--brand:#e0b27a;--wash:#2c251d;--ok:#7cc98a;--okbg:#1d2a1f;--bad:#ff8a7a;--badbg:#3a201c;--warn:#f1cf9c;--warnbg:#3a3020;--log:#0f0e0c;
+  --ins:#1f3a24;--insfg:#9fe0ab;--del:#45231f;--delfg:#ffab9e;--s1:#5a2a24;--s2:#4f3f20;--s3:#3a3631}}
+:root[data-theme="dark"]{--paper:#161412;--card:#1e1c19;--fg:#ece7df;--mute:#a59d91;--line:#34302b;--brand:#e0b27a;--wash:#2c251d;--ok:#7cc98a;--okbg:#1d2a1f;--bad:#ff8a7a;--badbg:#3a201c;--warn:#f1cf9c;--warnbg:#3a3020;--log:#0f0e0c;
+  --ins:#1f3a24;--insfg:#9fe0ab;--del:#45231f;--delfg:#ffab9e;--s1:#5a2a24;--s2:#4f3f20;--s3:#3a3631}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--fg);font:13.5px/1.6 Pretendard,"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;display:flex}
+.rail{width:262px;flex:none;background:var(--rail);color:var(--rail-fg);display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+.brand{padding:18px 16px 14px;border-bottom:1px solid var(--rail-line)}
+.brand b{font-size:16px;letter-spacing:-.2px}
+.pill{background:#8a5a2b;color:#fff;font-weight:800;font-size:13px;border-radius:8px;padding:5px 10px}
+.brand small{display:block;color:var(--rail-dim);font-size:11.5px;margin-top:6px}
+.newbook{display:block;width:100%;margin-top:12px;background:var(--rail-brand);border:0;color:#2a1c0c;font-weight:800;font-size:15px;border-radius:22px;padding:10px 0;cursor:pointer}
+.newbook:hover{background:#d8b580}
+.nav{flex:1;overflow:auto;padding:10px 8px}
+.nav a{display:flex;gap:8px;align-items:flex-start;padding:6px 10px;border-radius:8px;color:var(--rail-fg);text-decoration:none;margin:1px 0}
+.nav a:hover{background:var(--rail-hover)}
+.nav a.on{background:var(--rail-active);box-shadow:inset 3px 0 0 var(--rail-brand)}
+.nav-no{font-weight:800;color:var(--rail-brand);min-width:24px;font-variant-numeric:tabular-nums;font-size:12.5px}
+.nav-t{flex:1;min-width:0;overflow-wrap:anywhere}
+.nav-t em{display:block;font-style:normal;font-size:11.5px;color:var(--rail-dim)}
+.nav-sec{color:var(--rail-dim);font-size:11px;letter-spacing:.5px;padding:12px 10px 4px}
+.chip{font-size:10.5px;border-radius:9px;padding:0 6px;background:rgb(255 255 255/.08);color:var(--rail-mute);white-space:nowrap}
+.chip.ok{background:#2f4a33;color:#bfe3c3}.chip.warn{background:#4a3a26;color:#f1cf9c}.chip.bad{background:#4a2a26;color:#f4b3a8}
+.rail-foot{border-top:1px solid var(--rail-line);padding:10px 14px;font-size:11.5px;color:var(--rail-dim)}
+.rail-foot .bar{background:rgb(255 255 255/.1)}
+.cxbtn{cursor:pointer;color:var(--rail-fg);padding:6px 8px;margin:0 -8px 6px;border-radius:8px;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.cxbtn:hover{background:var(--rail-hover)}
+.cxmail{color:var(--rail-dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cxmenu{background:var(--rail-hover);border-radius:8px;padding:8px 10px;margin:-2px -8px 8px;color:var(--rail-mute);overflow-wrap:anywhere}
+.cxmenu button{background:transparent;color:var(--rail-fg);border-color:var(--rail-line);padding:3px 9px;font-size:12px}
+.cxmenu button:hover{background:var(--rail-active)}
+main{flex:1;min-width:0;height:100vh;overflow:auto;overflow-x:hidden}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 24px 60px}
+h1{font-size:20px;margin:0}
+.sub{color:var(--mute);margin:2px 0 14px;overflow-wrap:anywhere}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0}
+.card h2{font-size:14.5px;margin:0 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.n{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:6px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;padding:0 4px}
+.mute{color:var(--mute)}
+button,select,input,textarea{font:inherit;color:var(--fg)}
+button{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{background:var(--wash)}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
+button.big{font-size:14.5px;padding:9px 18px}
+button:disabled{opacity:.5;cursor:not-allowed}
+input[type=text],input[type=number],select,textarea{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:var(--card)}
+textarea{width:100%;resize:vertical;line-height:1.6}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.grid2{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;align-items:center}
+.drop{display:block;border:1.5px dashed var(--line);border-radius:10px;padding:22px;text-align:center;margin:6px 0;cursor:pointer}
+.drop.drag{border-color:var(--brand);background:var(--wash)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 6px}
+.bar i{display:block;height:100%;width:0;background:var(--brand);transition:width .3s}
+pre.log{background:var(--log);color:var(--logfg);border-radius:10px;padding:10px 12px;max-height:220px;overflow:auto;font:12px/1.5 Consolas,"D2Coding",monospace;white-space:pre-wrap;margin:0}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top;font-size:13px}
+th{color:var(--mute);font-weight:600;white-space:nowrap}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 10px}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:6px 14px;min-width:110px;background:var(--paper)}
+.kpi b{display:block;font-size:19px}
+.grade{font-size:34px!important;line-height:1.1}
+.gA{color:var(--ok)}.gB{color:var(--ok)}.gC{color:var(--warn)}.gD{color:var(--bad)}
+.tag{font-size:11px;border-radius:9px;padding:1px 7px;background:var(--okbg);color:var(--ok);white-space:nowrap}
+.tag.warn{background:var(--warnbg);color:var(--warn)}.tag.bad{background:var(--badbg);color:var(--bad)}.tag.plain{background:var(--paper);color:var(--mute);border:1px solid var(--line)}
+.sev{font-size:11px;font-weight:700;border-radius:5px;padding:0 5px;white-space:nowrap}
+.sev.S1{background:var(--s1)}.sev.S2{background:var(--s2)}.sev.S3{background:var(--s3)}
+mark{background:none;border-radius:3px;padding:0 1px;color:inherit}
+mark.S1{background:var(--s1)}mark.S2{background:var(--s2)}mark.S3{background:var(--s3)}
+ins{background:var(--ins);color:var(--insfg);text-decoration:none;border-radius:2px}
+del{background:var(--del);color:var(--delfg);border-radius:2px}
+.para{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.para:last-child{border-bottom:0}
+.para .no{font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums;text-align:right}
+.para.off .body{opacity:.6}
+.para .txt{white-space:pre-wrap;overflow-wrap:anywhere}
+.para .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px}
+.para label.adopt{display:inline-flex;gap:5px;align-items:center;font-weight:700;cursor:pointer}
+.para details{margin-top:6px}
+.para details summary{cursor:pointer;color:var(--mute);font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:4px 10px}
+.seg button.on{background:var(--brand);color:#fff}
+.checks{list-style:none;padding:0;margin:6px 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 16px}
+#toast{position:fixed;right:18px;top:16px;background:var(--fg);color:var(--paper);padding:9px 34px 9px 16px;border-radius:10px;display:none;max-width:min(460px,90vw);z-index:9;cursor:pointer;box-shadow:0 6px 24px rgb(0 0 0/.18)}
+#toast::after{content:"✕";position:absolute;right:12px;top:9px;opacity:.6}
+.alert{border:1px solid var(--bad);background:var(--badbg);color:var(--fg);border-radius:10px;padding:10px 14px;margin:8px 0;position:relative}
+.alert b{color:var(--bad)}
+.alert .x{position:absolute;right:8px;top:6px;border:0;background:none;font-size:15px;padding:2px 6px}
+.alert code{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font:12.5px Consolas,"D2Coding",monospace}
+.alert details{margin-top:6px;color:var(--mute);font-size:12px;overflow-wrap:anywhere}
+.note{background:var(--wash);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:13px}
+.iconbtn{padding:2px 7px;font-size:12px}
+.empty{padding:30px;text-align:center;color:var(--mute)}
+@media (max-width:820px){body{display:block}.rail{width:auto;height:auto;position:static}.nav{max-height:240px}main{height:auto}.wrap{padding:16px}.grid2{grid-template-columns:1fr}}
+</style></head>
+<body>
+<nav class="rail">
+  <div class="brand"><div class="row" style="gap:8px"><span class="pill">AI 윤문</span><b>에이전트</b></div>
+    <small>AI 티 진단 → 윤문 → 감사 → 등급 · korean-humanizer</small>
+    <button class="newbook" onclick="location.hash='#/new'">＋ 새 글 넣기</button></div>
+  <div class="nav" id="nav"></div>
+  <div class="rail-foot" id="foot"></div>
+</nav>
+<main><div class="wrap" id="view"></div></main>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct = r => Math.round(r*100)+"%";
+const api = async (url, opt) => { const r = await fetch(url, opt); const j = await r.json().catch(()=>({error:"응답 오류"})); if(!r.ok || j.ok===false) throw new Error(j.error||r.status); return j };
+function toast(t, ms=3500){ const e=$("toast"); e.textContent=t; e.style.display="block"; e.onclick=()=>e.style.display="none"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",ms) }
+
+let APP = null, DS = null, DEC = {}, timer = null, wasRunning = false, rendered = null, SEV = "all";
+const route = () => { const m = location.hash.match(/^#\/d\/(.+)$/); return m ? {view:"doc", id:decodeURIComponent(m[1])} : {view:"new"} };
+window.addEventListener("hashchange", () => { rendered = null; DS = null; refresh() });
+
+async function refresh(){
+  try{
+    APP = await api("/api/state");
+    const r = route();
+    const finished = wasRunning && !APP.job.running;
+    if(r.view === "doc" && (!DS || DS.doc.id !== r.id || finished)){
+      DS = await api("/api/doc?id="+encodeURIComponent(r.id)).catch(e=>{ toast(e.message); location.hash="#/new"; return null });
+      if(DS){ DEC = JSON.parse(JSON.stringify(DS.decisions||{})); rendered = null }
+    }
+    renderNav(); renderView();
+  }catch(e){ $("view").innerHTML = `<div class="empty">서버에 연결할 수 없습니다. run.bat 창이 열려 있는지 확인하고,<br>주소창에 <b>http://localhost:5294/</b> 를 입력해 보세요.</div>` }
+  clearTimeout(timer); timer = setTimeout(refresh, APP && (APP.job.running || (APP.codex && (APP.codex.checking || APP.codex.login_open))) ? 1200 : 6000);
+}
+
+/* ---------- 왼쪽 ---------- */
+function gchip(g){ return g ? `<span class="chip ${g<="B"?"ok":g==="C"?"warn":"bad"}">등급 ${g}</span>` : "" }
+function renderNav(){
+  const r = route();
+  let h = `<a href="#/new" class="${r.view==="new"?"on":""}"><span class="nav-no">＋</span><span class="nav-t">새 글 넣기<em>파일 끌어다 놓기 · 붙여넣기</em></span></a>`;
+  h += `<div class="nav-sec">내 글</div>`;
+  if(!APP.docs.length) h += `<div class="nav-sec" style="letter-spacing:0">아직 없습니다. 글을 넣으면 여기에 쌓입니다.</div>`;
+  for(const d of [...APP.docs].reverse()){
+    const f = d.found ? `<span class="chip">S1 ${d.found.S1} · S2 ${d.found.S2}</span>` : `<span class="chip">진단 전</span>`;
+    h += `<a href="#/d/${encodeURIComponent(d.id)}" class="${r.view==="doc"&&r.id===d.id?"on":""}"><span class="nav-no">${esc(d.id)}</span>
+      <span class="nav-t">${esc(d.title)}<em>${esc(d.genre||"")} · ${(d.chars||0).toLocaleString()}자</em>
+      <span class="row" style="gap:4px;margin-top:3px">${f}${gchip(d.grade)}</span></span></a>`;
+  }
+  $("nav").innerHTML = h;
+  const j = APP.job;
+  $("foot").innerHTML = codexFoot() + (j.name ? `<div>${j.running ? "⏳" : (j.error ? "⚠" : "✓")} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""}</div><div class="bar"><i style="width:${progress(j)}%"></i></div>` : "")
+    + `<div title="${esc(APP.workspace)}">워크스페이스: ${esc(APP.workspace.split(/[\\/]/).slice(-2).join("/"))}</div>`;
+  if(wasRunning && !j.running) toast(j.error ? (j.error_kind==="auth" ? "⚠ Codex 로그인 만료 — 화면의 안내를 확인하세요" : "⚠ "+j.name+" 중단 — 화면의 안내를 확인하세요") : j.name+" 끝", 6000);
+  wasRunning = j.running;
+}
+function progress(j){
+  if(!j.name) return 0;
+  if(!j.running) return 100;
+  // 로그 머리줄 "[탐지] … N구간을 Codex" / "[윤문] … N구간을 Codex" 와 구간별 줄 수로 센다
+  const total = kind => { const m = j.log.map(l=>l.match(new RegExp("^\\["+kind+"\\] .*?(\\d+)구간을 Codex"))).filter(Boolean).pop(); return m ? +m[1] : 0 };
+  const done = kind => j.log.filter(l=>new RegExp("^\\s+\\["+kind+"\\] 구간").test(l)).length;
+  const nd = total("탐지"), nr = total("윤문");
+  const det = nd ? Math.min(1, done("탐지")/nd) : 0;
+  if(j.name === "AI 흔적 진단") return Math.min(97, 4 + 93*det);
+  const rw = nr ? Math.min(1, (0.7*done("윤문") + 0.3*done("감사"))/nr) : 0;
+  return Math.min(97, nd ? 3 + 30*det + 64*rw : 3 + 94*rw);
+}
+
+function renderView(){
+  const r = route();
+  if(r.view === "new") return renderNew();
+  if(DS) return renderDoc();
+}
+
+/* ---------- 새 글 넣기 ---------- */
+function renderNew(){
+  if(rendered === "new"){ return }
+  rendered = "new";
+  const bk = APP.backups;
+  $("view").innerHTML = `<h1>새 글 넣기</h1>
+  <div class="sub">AI 도움을 받아 쓴 원고를 넣으면, 'AI 티'가 나는 곳을 찾아 표시하고(진단) 사람 글로 다듬어 줍니다(윤문).</div>
+  <div class="card"><h2><span class="n">1</span>파일로 넣기 <span class="mute" style="font-weight:400">— 워드(.docx) · 텍스트(.txt · .md) · PDF</span></h2>
+    <label class="drop" id="drop"><input type="file" id="file" accept=".docx,.txt,.md,.pdf,.hwp,.hwpx" hidden onchange="upload(this.files[0])">
+      <div style="font-size:15px;font-weight:700">여기에 파일을 끌어다 놓거나, 눌러서 고르세요</div>
+      <div class="mute">한글(.hwp) 파일은 한글에서 <b>다른 이름으로 저장 → Word 문서(.docx)</b> 로 바꿔서 올려 주세요.</div></label>
+  </div>
+  <div class="card"><h2><span class="n">2</span>붙여넣어 넣기</h2>
+    <div class="row" style="margin-bottom:6px"><input type="text" id="ptitle" placeholder="제목 (비우면 첫 줄로)" style="flex:1;min-width:200px"></div>
+    <textarea id="ptext" rows="10" placeholder="ChatGPT · Claude · Gemini 로 쓴 초안이나 원고를 붙여넣으세요. 문단은 빈 줄로 나눕니다."></textarea>
+    <div class="row" style="margin-top:8px"><button class="primary" onclick="paste()">이 글로 시작</button><span class="mute" id="pcount"></span></div>
+  </div>
+  <div class="note"><b>이 도구가 하는 일은 '윤문'까지입니다.</b> 이미 쓴 문장의 번역투 · 상투어 · 과한 꾸밈을 걷어 내고, 뜻 · 사실 · 수치 · 고유명사는 그대로 둡니다.
+    자료 조사와 사실 확인, 내용 보강, 분량을 채우는 일은 글쓴이의 몫으로 남겨 둡니다.</div>
+  ${bk.length ? `<div class="card"><h2><span class="n">↺</span>보관한 글</h2><table><tbody>${bk.map(b=>`<tr><td>${esc(b.id)}</td><td>${esc(b.title)}</td><td class="mute">${esc(b.name.slice(0,15))}</td>
+    <td style="text-align:right"><button class="iconbtn" onclick="restoreDoc('${esc(b.name)}')">다시 꺼내기</button></td></tr>`).join("")}</tbody></table></div>` : ""}`;
+  const dz = $("drop");
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag") };
+  dz.ondragleave = () => dz.classList.remove("drag");
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove("drag"); upload(e.dataTransfer.files[0]) };
+  $("ptext").oninput = () => { const t = $("ptext").value; $("pcount").textContent = t ? `공백 포함 ${t.length.toLocaleString()}자 · 제외 ${t.replace(/\s/g,"").length.toLocaleString()}자` : "" };
+}
+async function upload(f){
+  if(!f) return; toast(`${f.name} 읽는 중…`, 8000);
+  try{ const j = await api("/api/new",{method:"POST",headers:{"X-Filename":encodeURIComponent(f.name),"Content-Type":"application/octet-stream"},body:f});
+    toast("글을 넣었습니다. 장르를 확인하고 [AI 흔적 진단]을 누르세요.", 6000); location.hash = "#/d/"+j.doc.id;
+  }catch(e){ toast("실패: "+e.message, 9000) }
+}
+async function paste(){
+  const text = $("ptext").value.trim(); if(!text) return toast("글을 붙여넣어 주세요.");
+  try{ const j = await api("/api/new",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:$("ptitle").value, text})});
+    location.hash = "#/d/"+j.doc.id;
+  }catch(e){ toast("실패: "+e.message, 9000) }
+}
+async function restoreDoc(name){ try{ const j = await api("/api/restore",{method:"POST",body:JSON.stringify({name})}); location.hash="#/d/"+j.doc.id; toast("다시 꺼냈습니다.") }catch(e){ toast(e.message, 8000) } }
+
+/* ---------- 글 화면 ---------- */
+function marked(text, items){
+  // 원문 구절에 형광펜 (겹치면 앞의 것만)
+  const spans = [];
+  for(const it of items){ const k = text.indexOf(it.old_text); if(k<0) continue;
+    if(spans.some(s => k < s.e && k + it.old_text.length > s.s)) continue;
+    spans.push({s:k, e:k+it.old_text.length, it}) }
+  spans.sort((a,b)=>a.s-b.s);
+  let out = "", at = 0;
+  for(const s of spans){ out += esc(text.slice(at, s.s)) + `<mark class="${s.it.severity}" title="${esc(s.it.code+" "+(DS.codes[s.it.code]||{}).name+" — "+s.it.reason)}">${esc(text.slice(s.s, s.e))}</mark>`; at = s.e }
+  return out + esc(text.slice(at));
+}
+const adoptOf = p => { const d = DEC[p.i]; return d && "adopt" in d ? d.adopt : p.adopt_default };
+const textOf = p => (DEC[p.i] && DEC[p.i].text) || p.text;
+
+function renderDoc(){
+  const key = DS.doc.id + "|" + (DS.rewrite ? "rw" : DS.detect ? "det" : "new") + "|" + APP.job.running;
+  if(rendered === key){ updateJobBox(); return }
+  rendered = key;
+  const d = DS.doc, j = APP.job, busy = j.running, t = d.target || {};
+  $("view").innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><h1>${esc(d.id)} · ${esc(d.title)}</h1><div class="sub">${esc(d.source||"")} · 문단 ${DS.paras.length}개 · 공백 포함 ${DS.paras.join("\n\n").length.toLocaleString()}자 · ${esc(d.created||"")}</div></div>
+      <div class="row"><button onclick="openDir('')">폴더 열기</button><button onclick="archiveDoc()" ${busy?"disabled":""} title="backup 폴더로 옮깁니다 (지우지 않음)">보관</button></div></div>
+    <div class="card"><h2><span class="n">1</span>글 설정 <span class="mute" style="font-weight:400">— 진단·윤문 전에 확인하세요</span></h2>
+      <div class="grid2">
+        <span>제목</span><input type="text" id="m_title" value="${esc(d.title)}">
+        <span>장르</span><select id="m_genre">${APP.genres.map(g=>`<option ${g===d.genre?"selected":""}>${esc(g)}</option>`).join("")}</select>
+        <span>목표 글자수</span><div class="row"><input type="number" id="m_chars" min="0" step="50" value="${t.chars||""}" placeholder="비우면 원문 분량 유지" style="width:200px">
+          <label><input type="checkbox" id="m_nospace" ${t.no_space?"checked":""}> 공백 제외로 셈</label>
+          <label><input type="checkbox" id="m_strict" ${t.tol===0.02?"checked":""}> 정확히(±2%)</label>
+          <span class="mute">기본 ±5%. 늘릴 때도 없는 사실은 지어내지 않습니다.</span></div>
+        <span>문체 샘플</span><details ${d.voice?"open":""}><summary class="mute">선택 — 글쓴이가 직접 쓴 글을 붙여넣으면 그 말투로 다듬습니다</summary>
+          <textarea id="m_voice" rows="5" placeholder="저자가 직접 쓴 글 한두 문단">${esc(d.voice||"")}</textarea></details>
+      </div>
+      <div class="row" style="margin-top:8px"><button onclick="saveMeta(true)">설정 저장</button></div>
+    </div>
+    <div class="card"><h2><span class="n">2</span>실행</h2>
+      <div class="row">
+        <button class="big" onclick="run('detect')" ${busy?"disabled":""}>① AI 흔적 진단만</button>
+        <button class="big primary" onclick="run('rewrite')" ${busy?"disabled":""}>② 윤문하기 (진단 → 윤문 → 감사)</button>
+        <label class="mute"><input type="checkbox" id="m_audit" checked> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
+      </div>
+      <div class="mute" style="margin-top:6px">원고 10쪽 남짓에 수 분 걸립니다. 한 번 한 구간은 기억해 두므로 다시 눌러도 빠릅니다. 창을 닫아도 계속 진행됩니다.</div>
+      <div id="job"></div>
+    </div>
+    <div id="result"></div>`;
+  updateJobBox();
+  renderResult();
+}
+
+function renderSummary(){
+  const s = DS.summary; if(!s) return "";
+  const f = s.found;
+  let h = `<div class="kpis">`;
+  if(s.grade) h += `<div class="kpi"><span class="mute">등급</span><b class="grade g${s.grade}">${s.grade}</b></div>
+    <div class="kpi"><span class="mute">변경률</span><b class="${s.rate>.5?"bad":s.rate>.3?"warn":""}">${pct(s.rate)}</b></div>
+    <div class="kpi"><span class="mute">채택 문단</span><b>${s.adopted} / ${s.n_paras}</b></div>
+    <div class="kpi"><span class="mute">남은 흔적</span><b>S1 ${s.residual.S1} · S2 ${s.residual.S2}</b></div>`;
+  h += `<div class="kpi"><span class="mute">찾은 흔적 (원문)</span><b>S1 ${f.S1} · S2 ${f.S2} · S3 ${f.S3}</b></div>
+    <div class="kpi"><span class="mute">글자수 (공백 포함/제외)</span><b>${s.final_chars ? `${s.final_chars.with_space.toLocaleString()} / ${s.final_chars.no_space.toLocaleString()}` : `${s.orig_chars.with_space.toLocaleString()} / ${s.orig_chars.no_space.toLocaleString()}`}</b>
+      ${s.final_chars ? `<span class="mute" style="font-size:11.5px">원문 ${s.orig_chars.with_space.toLocaleString()} / ${s.orig_chars.no_space.toLocaleString()}</span>` : ""}</div>`;
+  if(s.target) h += `<div class="kpi"><span class="mute">목표 ${s.target.chars.toLocaleString()}자</span><b class="${s.target.ok?"ok":"bad"}">${s.target.actual.toLocaleString()} ${s.target.ok?"✓":"✗"}</b></div>`;
+  h += `</div>`;
+  if(s.grade){
+    h += `<div class="note"><b>${s.grade}</b> — ${esc(s.advice)}${s.lost.length ? `<br><span class="bad">⚠ 채택한 문단에서 원문의 <b>${esc(s.lost.join(", "))}</b> 이(가) 보이지 않습니다. 확인하세요.</span>` : ""}</div>
+      <ul class="checks">${Object.entries(s.selfcheck).map(([k,v])=>`<li>${v?'<span class="ok">✓</span>':'<span class="bad">✗</span>'} ${esc(k)}</li>`).join("")}</ul>`;
+  } else {
+    h += `<div class="note">진단만 한 상태입니다. 색칠된 곳이 AI 티가 나는 구절입니다 (<span class="sev S1">S1</span> 한 번만 나와도 AI 확신 · <span class="sev S2">S2</span> 3회 넘게 반복되면 손볼 것 · <span class="sev S3">S3</span> 다른 흔적과 겹칠 때만). 고치려면 [② 윤문하기]를 누르세요.</div>`;
+  }
+  return h;
+}
+
+function renderResult(){
+  const el = $("result"); if(!el) return;
+  if(!DS.detect){ el.innerHTML = `<div class="card empty">아직 진단 전입니다. 위의 [① AI 흔적 진단만] 또는 [② 윤문하기]를 누르세요.</div>`; return }
+  const det = DS.detect, rw = DS.rewrite;
+  const items = det.items.filter(x => SEV==="all" || x.severity===SEV);
+  const byPara = {}; for(const x of det.items) (byPara[x.para] = byPara[x.para]||[]).push(x);
+  const counts = {}; for(const x of det.items) counts[x.code] = (counts[x.code]||0)+1;
+  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed).length;
+  let h = `<div class="card"><h2><span class="n">3</span>결과 ${rw ? "· 등급" : "· 진단"}</h2><div id="sum">${renderSummary()}</div>
+    ${fails ? `<div class="alert"><b>⚠ ${fails}개 구간이 실패해 원문 그대로 두었습니다.</b> 같은 버튼을 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}</div>`;
+  h += `<div class="card"><h2><span class="n">4</span>${rw ? "문단 대조 · 고를 것" : "원문 · AI 흔적 표시"}
+      <span class="mute" style="font-weight:400">${rw ? "— 체크한 문단만 윤문본에 들어갑니다. 50% 넘게 바뀌었거나 숫자·인용이 빠진 문단은 기본으로 원문 유지" : ""}</span></h2>
+    ${rw ? `<div class="row" style="margin-bottom:6px"><button class="iconbtn" onclick="setAll(true)">모두 채택</button><button class="iconbtn" onclick="setAll(false)">모두 원문 유지</button><button class="iconbtn" onclick="setAll(null)">기본값으로</button>
+      <span class="mute"><ins>초록</ins> 새로 들어간 글자 · <del>빨강</del> 빠진 글자</span></div>` : ""}
+    <div id="paras">${(rw ? rw.paras : DS.paras.map((t,k)=>({i:k+1, orig:t}))).map(p => paraHtml(p, byPara[p.i]||[])).join("")}</div>
+    ${rw ? `<div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc()">반영 → 윤문본 만들기 (docx · txt · 진단표)</button>
+      <button onclick="secondPass()" title="체크한 대로 만든 윤문본을 새 글로 넣어 한 번 더 진단·윤문합니다 (등급 C일 때)">2차 윤문 (윤문본을 새 글로)</button></div>` :
+      `<div class="row" style="margin-top:12px"><button onclick="exportDoc()">진단표만 내려받기 (xlsx)</button></div>`}
+    ${filesHtml()}
+  </div>`;
+  h += `<div class="card"><h2><span class="n">5</span>찾은 AI 흔적 ${det.items.length}건 (원문 기준)
+      <span class="seg">${["all","S1","S2","S3"].map(s=>`<button class="${SEV===s?"on":""}" onclick="SEV='${s}';renderResult()">${s==="all"?"전체":s}</button>`).join("")}</span></h2>
+    <div class="row" style="margin-bottom:8px">${Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<span class="tag plain" title="${esc((DS.codes[c]||{}).fix||"")}">${esc(c)} ${esc((DS.codes[c]||{}).name||"")} ×${n}</span>`).join("")}</div>
+    <table><thead><tr><th>문단</th><th>분류</th><th>심각도</th><th>원문 구절</th><th>이유</th></tr></thead><tbody>
+    ${items.map(x=>`<tr><td><a href="#" onclick="jump(${x.para});return false">P${x.para}</a></td><td title="${esc((DS.codes[x.code]||{}).name||"")}">${esc(x.code)}<div class="mute" style="font-size:11px">${esc(DS.groups[x.code[0]]||"")}</div></td>
+      <td><span class="sev ${x.severity}">${x.severity}</span></td><td>${esc(x.old_text)}</td><td>${esc(x.reason)}${x.source==="rule"?' <span class="tag plain">규칙</span>':""}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">없습니다.</td></tr>`}
+    </tbody></table></div>`;
+  el.innerHTML = h;
+}
+
+function paraHtml(p, found){
+  if(!DS.rewrite) return `<div class="para" id="p${p.i}"><div class="no">${p.i}</div><div class="body"><div class="txt">${marked(p.orig, found)}</div>
+    ${found.length ? `<div class="meta">${found.map(x=>`<span class="sev ${x.severity}" title="${esc(x.reason)}">${esc(x.code)}</span>`).join("")}</div>` : ""}</div></div>`;
+  const on = adoptOf(p), edited = DEC[p.i] && DEC[p.i].text, changed = p.text !== p.orig;
+  const tags = [];
+  if(!changed) tags.push(`<span class="tag plain">원문 그대로</span>`);
+  if(p.deleted) tags.push(`<span class="tag warn">문단 삭제 (챗봇 잔재)</span>`);
+  else if(p.rate > .5) tags.push(`<span class="tag bad">변경률 ${pct(p.rate)} — 50% 초과</span>`);
+  else if(p.rate > .3) tags.push(`<span class="tag warn">변경률 ${pct(p.rate)}</span>`);
+  else if(changed) tags.push(`<span class="tag plain">변경률 ${pct(p.rate)}</span>`);
+  if(p.missing.length) tags.push(`<span class="tag bad">빠짐: ${esc(p.missing.join(", "))}</span>`);
+  if(edited) tags.push(`<span class="tag">직접 고침</span>`);
+  for(const x of (p.residual||[])) tags.push(`<span class="sev ${x.severity}" title="남은 흔적: ${esc(x.old_text+" — "+x.reason)}">남음 ${esc(x.code)}</span>`);
+  return `<div class="para ${on||!changed?"":"off"}" id="p${p.i}"><div class="no">${p.i}</div><div class="body">
+    <div class="txt">${edited ? esc(edited) : changed ? p.diff : marked(p.orig, found)}</div>
+    <div class="meta">${changed||edited ? `<label class="adopt"><input type="checkbox" ${on?"checked":""} onchange="decide(${p.i},{adopt:this.checked})"> 윤문 채택</label>` : ""}${tags.join("")}</div>
+    ${changed||edited ? `<details><summary>원문 보기 · 직접 고치기</summary>
+      <div class="txt mute" style="margin:6px 0">${marked(p.orig, found)}</div>
+      <textarea rows="4" id="ed${p.i}">${esc(textOf(p))}</textarea>
+      <div class="row" style="margin-top:4px"><button class="iconbtn" onclick="saveEdit(${p.i})">이 문장으로 저장</button>
+        ${edited ? `<button class="iconbtn" onclick="decide(${p.i},{text:null},true)">AI 윤문으로 되돌리기</button>` : ""}</div></details>` : ""}
+  </div></div>`;
+}
+function filesHtml(){
+  if(!DS.files.length) return "";
+  return `<div style="margin-top:10px"><b>만든 파일</b> <span class="mute">(05_반영본)</span>
+    <div class="row" style="margin-top:4px">${DS.files.map(f=>`<a href="/files/${encodeURIComponent(DS.doc.id)}/${encodeURIComponent(f.path).replace(/%2F/g,"/")}?dl=1"><button class="iconbtn">⬇ ${esc(f.name)}</button></a><span class="mute" style="font-size:11px">${esc(f.time)}</span>`).join("")}
+    <button class="iconbtn" onclick="openDir('05_반영본')">폴더 열기</button></div></div>`;
+}
+function jump(i){ const e = $("p"+i); if(e){ e.scrollIntoView({behavior:"smooth", block:"center"}); e.style.outline="2px solid var(--brand)"; setTimeout(()=>e.style.outline="", 1600) } }
+
+let decTimer = null;
+function decide(i, patch, rerender){
+  const cur = Object.assign({}, DEC[i]||{}, patch);
+  if(cur.text === null) delete cur.text;
+  DEC[i] = cur;
+  if(rerender) renderResult();
+  else { const p = DS.rewrite.paras.find(x=>x.i===i); $("p"+i).classList.toggle("off", !adoptOf(p) && p.text!==p.orig) }
+  clearTimeout(decTimer); decTimer = setTimeout(pushDec, 400);
+}
+function saveEdit(i){ const v = $("ed"+i).value.trim(); const p = DS.rewrite.paras.find(x=>x.i===i);
+  decide(i, v && v !== p.text ? {text:v, adopt:true} : {text:null}, true); toast("저장했습니다.") }
+function setAll(v){ for(const p of DS.rewrite.paras){ if(v===null){ if(DEC[p.i]) delete DEC[p.i].adopt } else DEC[p.i] = Object.assign({}, DEC[p.i]||{}, {adopt:v}) } renderResult(); pushDec() }
+async function pushDec(){
+  try{ const j = await api("/api/decide?id="+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify({decisions:DEC})});
+    DS.summary = j.summary; const e = $("sum"); if(e) e.innerHTML = renderSummary() }catch(e){ toast(e.message, 8000) }
+}
+
+async function saveMeta(say){
+  const body = {title:$("m_title").value, genre:$("m_genre").value, voice:$("m_voice").value,
+    target:{chars:+$("m_chars").value||0, no_space:$("m_nospace").checked, strict:$("m_strict").checked}};
+  const j = await api("/api/doc/meta?id="+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify(body)});
+  DS.doc = j.doc; if(say){ toast("저장했습니다."); refresh() }
+}
+async function run(what){
+  try{
+    await saveMeta(false);
+    if(what==="rewrite" && DS.rewrite && !confirm("다시 윤문하면 지금 체크·직접 고친 문장이 기본값으로 돌아갑니다. 할까요?\n(이미 한 구간은 기억해 두어 빠릅니다. 설정을 바꿨다면 새로 합니다)")) return;
+    await api(`/api/${what}?id=`+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify({audit:$("m_audit").checked})});
+    toast(what==="detect" ? "AI 흔적을 찾는 중입니다." : "윤문을 시작했습니다. 진행 상황은 아래 로그에 나옵니다.", 5000); refresh();
+  }catch(e){ toast(e.message, 8000) }
+}
+async function exportDoc(){
+  try{ clearTimeout(decTimer); const j = await api("/api/export?id="+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify(DS.rewrite?{decisions:DEC}:{})});
+    toast("만들었습니다: "+j.files.join(", "), 7000); DS = null; refresh() }catch(e){ toast(e.message, 9000) }
+}
+async function secondPass(){
+  if(!confirm("지금 체크한 대로 만든 윤문본을 새 글로 넣습니다. 새 글에서 [② 윤문하기]를 다시 누르세요.")) return;
+  try{ clearTimeout(decTimer); const j = await api("/api/second?id="+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify({decisions:DEC})});
+    location.hash = "#/d/"+j.doc.id; toast("2차 윤문용 새 글을 만들었습니다.", 6000) }catch(e){ toast(e.message, 8000) }
+}
+async function openDir(stage){ try{ await api(`/api/open?id=${encodeURIComponent(DS.doc.id)}&stage=${encodeURIComponent(stage)}`,{method:"POST"}) }catch(e){ toast(e.message) } }
+async function archiveDoc(){
+  if(!confirm(`'${DS.doc.title}' 을(를) 보관할까요?\n(backup 폴더로 옮길 뿐 지우지 않습니다. '새 글 넣기' 화면에서 다시 꺼낼 수 있습니다)`)) return;
+  try{ await api("/api/archive?id="+encodeURIComponent(DS.doc.id),{method:"POST"}); location.hash="#/new"; toast("보관했습니다.") }catch(e){ toast(e.message) }
+}
+
+/* ---------- 알림 · 작업 로그 (TS 속독 에이전트와 같음) ---------- */
+let ALERT_OFF = "";
+function jobAlert(j){
+  if(j.running || !j.error) return "";
+  const sig = j.name+"|"+j.ended; if(ALERT_OFF === sig) return "";
+  const auth = j.error_kind === "auth" || /Codex 로그인이 만료/.test(j.error);
+  const raw = j.error.replace(/^.*?\(원문: /, "").replace(/\)$/, "");
+  return `<div class="alert"><button class="x" title="닫기" onclick="ALERT_OFF='${esc(sig)}';rendered=null;renderView()">✕</button>
+    ${auth ? `<b>⚠ 이 PC의 Codex 로그인이 만료됐습니다.</b> (${esc(j.name)})
+      <div class="row" style="margin-top:8px"><button class="primary" onclick="codexLogin(true)">Codex 다시 로그인</button>
+        <span>브라우저가 열리면 ChatGPT 계정으로 로그인한 뒤, 멈췄던 버튼을 다시 누르세요. (왼쪽 아래 Codex 메뉴에서도 할 수 있습니다)</span></div>
+      <details><summary>직접 하려면</summary>프로그램 폴더의 <b>codex-다시로그인.bat</b> 을 더블클릭하거나, 명령창(cmd)에서 <code>codex logout</code> 다음 <code>codex login</code>.
+        <button class="iconbtn" onclick="copyLogin()">명령 복사</button></details>
+      <details><summary>원문 오류 보기</summary>${esc(raw)}</details>`
+    : `<b>⚠ ${esc(j.name)} 작업이 멈췄습니다.</b><div style="margin-top:4px;overflow-wrap:anywhere">${esc(j.error)}</div>`}</div>`;
+}
+function updateJobBox(){
+  const el = $("job"), j = APP.job; if(!el) return;
+  if(!j.name || j.uid !== DS.doc.id){ el.innerHTML = ""; return }
+  const sig = j.log.length+"|"+j.running+"|"+ALERT_OFF;
+  if(el.dataset.sig === sig) return; el.dataset.sig = sig;
+  const log = `<pre class="log">${esc(j.log.join("\n")||"시작 중…")}</pre>`;
+  el.innerHTML = jobAlert(j) + (j.running ? `<div class="bar"><i style="width:${progress(j)}%"></i></div>${log}`
+    : `<details style="margin:6px 0"><summary class="mute">${j.error ? "⚠" : "✓"} ${esc(j.name)} ${j.error ? "중단" : "끝"} (${esc(j.ended||"")}) — 로그 보기</summary>${log}</details>`);
+  const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
+}
+
+/* ---------- Codex 계정 (좌하단) ---------- */
+let CODEXMENU = false, CODEXSEEN = null;
+function codexFoot(){
+  const c = APP.codex || {};
+  if(c.verified === false && CODEXSEEN !== c.checked_at){ CODEXMENU = true; CODEXSEEN = c.checked_at }
+  const busy = c.checking || c.login_open;
+  const dot = busy ? "⏳" : c.verified ? "🟢" : (c.verified === false || c.logged_in === false) ? "🔴" : "🟡";
+  const head = c.installed === false ? "Codex 없음" : c.logged_in === false ? "Codex 로그인 필요"
+    : c.verified === false ? "Codex 로그인 만료" : c.verified ? "Codex 정상" : "Codex 확인 필요";
+  return `<div class="cxbtn" onclick="CODEXMENU=!CODEXMENU;renderNav()" title="눌러서 로그인 · 로그아웃 · 새로고침"><span>${dot} ${head}</span><span class="cxmail">${esc(c.email||"")}</span><span>${CODEXMENU?"▾":"▸"}</span></div>
+    ${CODEXMENU ? `<div class="cxmenu">
+      <div>${esc(c.message||"")}${c.checked_at ? ` <span style="opacity:.7">· ${esc(c.checked_at)}</span>` : ""}</div>
+      <div class="row" style="gap:4px;margin-top:6px">
+        <button onclick="codexAct('refresh')" ${busy?"disabled":""} title="로그인 상태 + 실제로 한 번 짧게 불러 봅니다 (10~30초)">새로고침</button>
+        <button onclick="codexLogin(true)" ${busy||c.installed===false?"disabled":""}>로그인</button>
+        <button onclick="codexAct('logout')" ${busy||c.installed===false?"disabled":""}>로그아웃</button>
+      </div></div>` : ""}`;
+}
+async function codexAct(what){
+  if(what==="logout" && !confirm("이 PC의 Codex 로그인을 해제할까요? (다시 [로그인]해야 윤문을 쓸 수 있습니다)")) return;
+  try{ await api("/api/codex/"+what,{method:"POST"}); toast(what==="refresh" ? "Codex를 실제로 불러 보는 중입니다 (10~30초)" : "로그아웃했습니다."); refresh() }catch(e){ toast(e.message, 8000) }
+}
+async function codexLogin(relogin){
+  try{ await api("/api/codex/login",{method:"POST",body:JSON.stringify({relogin: relogin===true})});
+    CODEXMENU = true; toast("새 창과 브라우저가 열립니다. ChatGPT 계정으로 로그인하세요. 끝나면 자동으로 확인합니다.", 9000); refresh()
+  }catch(e){ toast(e.message, 8000) }
+}
+function copyLogin(){ navigator.clipboard.writeText("codex logout && codex login").then(()=>toast("복사했습니다. 명령창에 붙여 넣으세요.")) }
+
+refresh();
+</script>
+</body></html>
