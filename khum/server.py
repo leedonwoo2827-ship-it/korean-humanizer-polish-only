@@ -1,7 +1,7 @@
 """한국어 AI 윤문 에이전트 — 웹 콘솔 서버 (이 PC 안에서만, 표준 라이브러리만 사용).
 
-주소는 반드시 http://localhost:5294/ 로 안내한다.
-(http://127.0.0.1:5294/ 로는 안 되는 자리가 있다 — 그래서 127.0.0.1 과 ::1 양쪽에 다 열어 두고, 안내·브라우저 열기는 localhost 로만.)
+주소는 반드시 http://localhost:8767/ 로 안내한다.
+(http://127.0.0.1:8767/ 로는 안 되는 자리가 있다 — 그래서 127.0.0.1 과 ::1 양쪽에 다 열어 두고, 안내·브라우저 열기는 localhost 로만.)
 
   GET  /                        콘솔 화면 (khum/console.html)
   GET  /api/state               글 목록 · 보관함 · 작업 상태 · Codex 상태
@@ -33,7 +33,7 @@ from pathlib import Path
 
 from . import audit, codex_auth, config, export, extract, humanize, taxonomy
 
-PORT = 5294
+PORT = 8767
 CONSOLE = Path(__file__).with_name("console.html")
 
 

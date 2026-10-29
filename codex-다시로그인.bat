@@ -9,5 +9,5 @@ call codex logout
 call codex login
 echo.
 call codex login status
-echo 끝나면 콘솔(http://localhost:5294/)에서 멈췄던 버튼을 다시 누르세요.
+echo 끝나면 콘솔(http://localhost:8767/)에서 멈췄던 버튼을 다시 누르세요.
 pause

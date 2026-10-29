@@ -7,7 +7,7 @@ set "PATH=%APPDATA%\npm;%PATH%"
 set PYTHONUTF8=1
 echo 한국어 AI 윤문 에이전트 콘솔을 엽니다.
 echo.
-echo   주소: http://localhost:5294/
+echo   주소: http://localhost:8767/
 echo   브라우저가 안 열리면 위 주소를 주소창에 직접 입력하세요.
 echo   (127.0.0.1 이 아니라 localhost 로 입력해야 합니다)
 echo.

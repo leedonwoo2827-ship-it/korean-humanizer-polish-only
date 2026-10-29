@@ -138,7 +138,7 @@ async function refresh(){
       if(DS){ DEC = JSON.parse(JSON.stringify(DS.decisions||{})); rendered = null }
     }
     renderNav(); renderView();
-  }catch(e){ $("view").innerHTML = `<div class="empty">서버에 연결할 수 없습니다. run.bat 창이 열려 있는지 확인하고,<br>주소창에 <b>http://localhost:5294/</b> 를 입력해 보세요.</div>` }
+  }catch(e){ $("view").innerHTML = `<div class="empty">서버에 연결할 수 없습니다. run.bat 창이 열려 있는지 확인하고,<br>주소창에 <b>http://localhost:8767/</b> 를 입력해 보세요.</div>` }
   clearTimeout(timer); timer = setTimeout(refresh, APP && (APP.job.running || (APP.codex && (APP.codex.checking || APP.codex.login_open))) ? 1200 : 6000);
 }
 

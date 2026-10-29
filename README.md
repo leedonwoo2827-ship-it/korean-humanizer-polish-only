@@ -35,9 +35,9 @@ ChatGPT·Claude·Gemini의 도움을 받아 쓴 원고에서 **'AI 티'가 나�
 2. **`run.bat` 더블클릭** → 브라우저에 콘솔이 열립니다.
    검은 창은 끄지 말고 최소화해 두세요. 끄면 콘솔도 멈춥니다.
 
-> **주소는 `http://localhost:5294/` 입니다.**
+> **주소는 `http://localhost:8767/` 입니다.**
 > 브라우저가 저절로 안 열리면 주소창에 직접 입력하세요.
-> `127.0.0.1:5294` 로는 안 되는 경우가 있으니 꼭 **localhost** 로 입력하세요.
+> `127.0.0.1:8767` 로는 안 되는 경우가 있으니 꼭 **localhost** 로 입력하세요.
 
 ## ■ 사용법
 
@@ -120,7 +120,7 @@ ChatGPT·Claude·Gemini의 도움을 받아 쓴 원고에서 **'AI 티'가 나�
 
 - 문단을 합치거나 나누지 않습니다. 원고의 문단 구조는 그대로 남습니다.
 - 한 번 돌린 구간은 기억해 두므로, 같은 버튼을 다시 눌러도 빠르고 실패한 구간만 다시 합니다.
-- 진행 중에 브라우저를 닫아도 작업은 계속됩니다. 다시 `http://localhost:5294/` 를 열면 됩니다.
+- 진행 중에 브라우저를 닫아도 작업은 계속됩니다. 다시 `http://localhost:8767/` 를 열면 됩니다.
 - **「Codex 로그인 만료」** 가 뜨면 왼쪽 아래 Codex 메뉴의 [로그인] 또는 `codex-다시로그인.bat` 을 더블클릭하세요.
 - 다 쓴 글은 **「보관」** 하면 `backup/` 폴더로 옮겨집니다 (지우지 않음). 「새 글 넣기」 화면에서 다시 꺼낼 수 있습니다.
 - 원고와 결과물은 이 PC의 `workspace/` 폴더에만 남습니다. 윤문할 때는 원고 내용이 ChatGPT(Codex)로 보내집니다.
@@ -152,7 +152,7 @@ ChatGPT·Claude·Gemini의 도움을 받아 쓴 원고에서 **'AI 티'가 나�
 <summary>명령줄 · 폴더 (관리자용)</summary>
 
 ```
-.venv\Scripts\python -m khum.server            # 콘솔 (http://localhost:5294/)
+.venv\Scripts\python -m khum.server            # 콘솔 (http://localhost:8767/)
 .venv\Scripts\python -m khum.server 5300       # 다른 포트로
 .venv\Scripts\python -m khum.humanize detect 01   # 글 01 진단만
 .venv\Scripts\python -m khum.humanize rewrite 01  # 글 01 윤문 + 감사
