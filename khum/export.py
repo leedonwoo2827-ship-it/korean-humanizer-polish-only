@@ -10,6 +10,8 @@ import json
 from datetime import datetime
 
 from openpyxl import Workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -67,7 +69,24 @@ def errata_rows(did, rw, decisions):
 ERRATA_CSS = """body{font:13px/1.55 "Malgun Gothic",malgun,sans-serif;margin:20px;color:#222}
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top;text-align:left}
 th{background:#f1ece3;font-size:12px}td.c{text-align:center;white-space:nowrap}.s{color:#666;font-size:11px}
-del{color:#a3271b}ins{color:#1e5b2a;text-decoration:none;font-weight:bold}.memo{min-width:120px}"""
+.memo{min-width:120px}
+b.x{color:#9b1c10;background:#ffc4bb;border-radius:2px;padding:0 1px}b.y{color:#11602a;background:#a8ebb6;border-radius:2px;padding:0 1px}"""
+
+
+def _pair(r):
+    """(기존 html, 수정 html) — 바뀐 글자만 색칠, 수정이 비면 (삭제)."""
+    o, n = audit.mark_pair(r["old"], r["new"])
+    return o, n or '<b class=x>(삭제)</b>'
+
+
+RED, GREEN = InlineFont(color="C0392B", b=True), InlineFont(color="1E7A34", b=True)
+
+
+def _rich(r):
+    """엑셀 칸: 바뀐 글자만 붉게 / 녹색으로."""
+    xa, xb = audit.diff_spans(r["old"], r["new"])
+    cell = lambda xs, f: CellRichText([TextBlock(f, t) if ch else t for t, ch in xs])
+    return cell(xa, RED), cell(xb, GREEN) if r["new"] else CellRichText([TextBlock(RED, "(삭제)")])
 
 
 def _where(r):
@@ -78,7 +97,7 @@ def errata_board(title, rows):
     """게시판에 올릴 정오표 (반영한 것만)."""
     esc = html.escape
     body = "".join(f"<tr><td>{esc(r['part'][:20])}</td><td class=c>{r['page'] or ''}</td><td class=c>{r['para']}</td>"
-                   f"<td><del>{esc(r['old'])}</del></td><td><ins>{esc(r['new']) or '(삭제)'}</ins></td>"
+                   f"<td>{_pair(r)[0]}</td><td>{_pair(r)[1]}</td>"
                    f"<td>{esc(r['note'])}</td></tr>" for r in rows)
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{esc(title)} 정오표</title>
 <style>{ERRATA_CSS}</style></head><body>
@@ -94,7 +113,7 @@ def errata_review(did, title, rows):
     body = "".join(
         f"<tr data-id='{esc(r['id'])}'><td class=c><input type=checkbox {'checked' if r['on'] else ''}></td>"
         f"<td class=c>{esc(r['id'])}</td><td class=s>{_where(r)}</td>"
-        f"<td><del>{esc(r['old'])}</del></td><td><ins contenteditable class=new>{esc(r['new'])}</ins>{'' if r['new'] else '<span class=s>(삭제)</span>'}</td>"
+        f"<td>{_pair(r)[0]}</td><td><span contenteditable class=new>{audit.mark_pair(r['old'], r['new'])[1]}</span>{'' if r['new'] else '<span class=s>(삭제)</span>'}</td>"
         f"<td class=c>{r['p']:.0%}</td><td class=s>{esc(r['code'])}<br>{esc(r['reason'])}{('<br><b>⚠ ' + esc(r['warn']) + '</b>') if r['warn'] else ''}</td>"
         f"<td class=memo contenteditable>{esc(r['note'])}</td></tr>" for r in rows)
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{esc(title)} 정오표 검토</title>
@@ -128,7 +147,7 @@ def errata_pdf(path, title, rows):
     import pymupdf
     esc = html.escape
     body = "".join(f"<tr><td class=c>{'☑' if r['on'] else '☐'}</td><td class=c>{esc(r['id'])}</td><td class=s>{_where(r)}</td>"
-                   f"<td><del>{esc(r['old'])}</del></td><td><ins>{esc(r['new']) or '(삭제)'}</ins></td>"
+                   f"<td>{_pair(r)[0]}</td><td>{_pair(r)[1]}</td>"
                    f"<td class=c>{r['p']:.0%}</td><td class=s>{esc(r['code'].split()[0])}</td><td>{esc(r['note']) or MEMO_PAD}</td></tr>"
                    for r in rows)
     doc = (f"<h3>{esc(title)} — 정오표 검토</h3><p class=s>{datetime.now():%Y-%m-%d} · 후보 {len(rows)}건 · ☑ = 반영(지금 체크). "
@@ -139,7 +158,7 @@ def errata_pdf(path, title, rows):
            "body{margin:0;font-size:9pt;color:#222}table{border-collapse:collapse;width:100%}"
            "th,td{border:1px solid #999;padding:3px 4px;vertical-align:top;text-align:left;font-size:9pt}"
            "th{background:#f1ece3}td.c{text-align:center}.s{color:#555;font-size:8pt}"
-           "del{color:#a3271b;text-decoration:none}ins{color:#1e5b2a;text-decoration:none;font-weight:bold}")
+           "b.x{color:#9b1c10;background-color:#ffc4bb}b.y{color:#11602a;background-color:#a8ebb6}")
     story = pymupdf.Story(html=doc, user_css=css, archive=pymupdf.Archive("C:/Windows/Fonts"))
     page = pymupdf.paper_rect("a4-l")
     w = pymupdf.DocumentWriter(str(path))
@@ -249,7 +268,7 @@ def run(did, decisions=None, part=None):
         er = errata_rows(did, rw, decisions)
         cols = [("ID", 8), ("절", 18), ("쪽", 6), ("문단", 6), ("기존 문구", 46), ("수정 문구", 46), ("수정확률", 8),
                 ("분류", 18), ("이유", 40), ("메모", 24), ("확인", 16)]
-        pick = lambda r: [r["id"], r["part"], r["page"] or "", r["para"], r["old"], r["new"] or "(삭제)", f"{r['p']:.0%}",
+        pick = lambda r: [r["id"], r["part"], r["page"] or "", r["para"], *_rich(r), f"{r['p']:.0%}",
                           r["code"], r["reason"], r["note"], r["warn"]]
         on = [r for r in er if r["on"]]
         _sheet(wb.create_sheet("정오표", 0), cols, [pick(r) for r in on])

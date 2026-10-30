@@ -43,6 +43,22 @@ def diff_html(a, b):
     return "".join(out)
 
 
+def diff_spans(a, b):
+    """정오표용: 기존 → 수정을 글자 단위로 나눠 [(글자, 바뀜?)] 두 줄로. 바뀐 글자만 색칠하려고."""
+    xa, xb = [], []
+    for op, i1, i2, j1, j2 in SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        xa.append((a[i1:i2], op != "equal"))
+        xb.append((b[j1:j2], op != "equal"))
+    return [x for x in xa if x[0]], [x for x in xb if x[0]]
+
+
+def mark_pair(a, b):
+    """기존 문구는 바뀌는 글자만 <b class=x>, 수정 문구는 새로 든 글자만 <b class=y>. 나머지는 그대로(검정)."""
+    xa, xb = diff_spans(a, b)
+    tag = lambda xs, c: "".join(f"<b class={c}>{html.escape(t)}</b>" if ch else html.escape(t) for t, ch in xs)
+    return tag(xa, "x"), tag(xb, "y")
+
+
 def default_adopt(p):
     """처음 보여 줄 때의 기본 체크: 바뀌었고, 50% 이하로 바뀌었고, 숫자·인용이 다 남은 문단만 채택.
     챗봇 잔재 문단 삭제는 채택이 기본."""

@@ -7,7 +7,7 @@
   --rail:#201e1b;--rail-fg:#efece5;--rail-mute:#b3aca1;--rail-dim:#8a8378;--rail-brand:#c9a46a;--rail-hover:#302e2b;--rail-active:#36302a;--rail-line:rgb(255 255 255/.09);
   --paper:#f7f5f1;--card:#fffdfa;--fg:#24211d;--mute:#6b645a;--line:#e4ded4;--brand:#8a5a2b;--wash:#f3ebe0;
   --ok:#2f6b3a;--okbg:#e5f1e3;--bad:#b42318;--badbg:#fbe9e6;--warn:#8a5a00;--warnbg:#fbf0d9;--log:#1b1916;--logfg:#e6e0d6;
-  --ins:#dff3e1;--insfg:#1e5b2a;--del:#fbe1dd;--delfg:#a3271b;--s1:#f8d4cf;--s2:#f7e6c4;--s3:#e8e4dc}
+  --ins:#c4f0cc;--insfg:#11602a;--del:#ffd0c9;--delfg:#9b1c10;--s1:#f8d4cf;--s2:#f7e6c4;--s3:#e8e4dc}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#161412;--card:#1e1c19;--fg:#ece7df;--mute:#a59d91;--line:#34302b;--brand:#e0b27a;--wash:#2c251d;--ok:#7cc98a;--okbg:#1d2a1f;--bad:#ff8a7a;--badbg:#3a201c;--warn:#f1cf9c;--warnbg:#3a3020;--log:#0f0e0c;
   --ins:#1f3a24;--insfg:#9fe0ab;--del:#45231f;--delfg:#ffab9e;--s1:#5a2a24;--s2:#4f3f20;--s3:#3a3631}}
@@ -87,6 +87,7 @@ mark{background:none;border-radius:3px;padding:0 1px;color:inherit}
 mark.S1{background:var(--s1)}mark.S2{background:var(--s2)}mark.S3{background:var(--s3)}
 ins{background:var(--ins);color:var(--insfg);text-decoration:none;border-radius:2px}
 del{background:var(--del);color:var(--delfg);border-radius:2px}
+b.mx{background:var(--del);color:var(--delfg);border-radius:2px;padding:0 1px}b.my{background:var(--ins);color:var(--insfg);border-radius:2px;padding:0 1px}
 .para{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;padding:12px 4px;border-bottom:1px solid var(--line)}
 .para:last-child{border-bottom:0}
 .para .no{font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums;text-align:right}
@@ -474,6 +475,25 @@ function getCard(){
         <li><b>체크한 것을 다시 올릴 때</b> — ④ 정오 판정 아래 「체크본 가져오기」로 저장한 파일(.json · .xlsx)을 고른 뒤, 여기서 [다시 만들기]를 누르세요.</li>
       </ol></div>`;
 }
+// 기존 → 수정을 글자 단위로 비교해 바뀐 글자만 색칠 (기존 = 붉게, 수정 = 녹색, 나머지 검정)
+function markPair(a, b){
+  const n = a.length, m = b.length;
+  let ra = [], rb = [];
+  if(n * m > 250000){ ra = [[a, 1]]; rb = [[b, 1]] }
+  else {
+    const L = Array.from({length: n+1}, () => new Uint16Array(m+1));
+    for(let i = n-1; i >= 0; i--) for(let j = m-1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i+1][j+1] + 1 : Math.max(L[i+1][j], L[i][j+1]);
+    const push = (r, c, ch) => { const t = r[r.length-1]; if(t && t[1] === ch) t[0] += c; else r.push([c, ch]) };
+    let i = 0, j = 0;
+    while(i < n || j < m){
+      if(i < n && j < m && a[i] === b[j]){ push(ra, a[i++], 0); push(rb, b[j++], 0) }
+      else if(j < m && (i >= n || L[i][j+1] >= L[i+1][j])) push(rb, b[j++], 1);
+      else push(ra, a[i++], 1);
+    }
+  }
+  const tag = (r, c) => r.map(([t, ch]) => ch ? `<b class="${c}">${esc(t)}</b>` : esc(t)).join("");
+  return `${tag(ra, "mx")} → ${b ? tag(rb, "my") : '<b class="mx">(삭제)</b>'}`;
+}
 function editHtml(e){
   const on = eOn(e), d = DEC[ekey(e)] || {}, pg = DS.pages[e.para-1], orig = DS.paras[e.para-1] || "";
   const k = orig.indexOf(e.old_text);
@@ -484,7 +504,7 @@ function editHtml(e){
       <span class="mute">${pg ? "p."+pg+" · " : ""}문단 ${e.para}${DS.parts.length > 1 ? " · " + esc(partOf(e.para).slice(0,16)) : ""}</span>
       <span class="tag plain" title="${esc((DS.codes[e.code]||{}).fix||"")}">${esc(e.code)} ${esc((DS.codes[e.code]||{}).name||"")}</span>
       ${warn.map(w=>`<span class="tag bad">${esc(w)}</span>`).join("")}${d.new_text != null ? `<span class="tag">직접 고침</span>` : ""}</div>
-    <div class="txt" style="margin-top:4px"><del>${esc(e.old_text)}</del> → <ins>${esc(eNew(e)) || "(삭제)"}</ins></div>
+    <div class="txt" style="margin-top:4px">${markPair(e.old_text, eNew(e))}</div>
     <div class="mute" style="font-size:12.5px;margin-top:2px">${esc(e.reason)}</div>
     <details><summary>원문 보기 · 수정 문구 고치기 · 메모</summary>
       <div class="txt mute" style="margin:6px 0">${ctx}</div>
