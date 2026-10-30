@@ -460,10 +460,9 @@ function getCard(){
       <button class="primary" style="margin-left:8px" onclick="exportDoc()">지금 체크(${on}건)로 다시 만들기</button></div>` : ""}
     <div class="dl">
       ${tile(f("_정오표.xlsx"), "📊", "엑셀 정오표", "체크한 것 + 전체 후보 · 저자에게 보내기", true, true)}
-      ${tile(f("_정오표_검토.pdf"), "🖨", "검토용 PDF 보기", "인쇄해서 회의 · 체크칸 · 메모칸", false)}
-      ${tile(f("_정오표_검토.html"), "✔", "화면에서 체크하기", "브라우저에서 체크 → [체크 결과 저장]", false)}
-      ${tile(f("_정오표_게시판.html"), "📋", "게시판용 보기", "체크한 것만 · 복사해 붙이기", false)}
-      ${tile(f("_윤문본.docx"), "📝", "고친 원고 (워드)", "체크한 수정을 반영한 원고", true)}
+      ${tile(f("_정오표_검토.pdf"), "🖨", "PDF 정오표", "인쇄해서 회의 · 체크칸 · 메모칸", false)}
+      ${tile(f("_정오표_검토.html"), "✔", "브라우저 체크하기", "브라우저에서 체크 → [체크 결과 저장]", false)}
+      ${tile(f("_정오표_게시판.html"), "📋", "HTML 정오표", "체크한 것만 · 복사해 붙이기", false)}
       <a href="/zip/${encodeURIComponent(DS.doc.id)}"><b>⬇ 전부 한 번에 받기</b><span>위 파일 모두 · zip 하나</span></a>
     </div>
     <div class="row" style="margin-top:8px"><button class="iconbtn" onclick="exportDoc()">지금 체크(${on}건)로 다시 만들기</button>
@@ -471,7 +470,7 @@ function getCard(){
     <div class="card"><h2>이렇게 쓰세요</h2>
       <ol style="margin:0;padding-left:20px;line-height:1.9">
         <li><b>저자에게 보낼 때</b> — 「엑셀 정오표」를 받아 메일에 붙이세요. 첫 시트가 정오표입니다.</li>
-        <li><b>회의할 때</b> — 「검토용 PDF 보기」를 인쇄해 체크칸에 표시하거나, 「화면에서 체크하기」로 같이 보며 체크한 뒤 [체크 결과 저장]을 누르세요.</li>
+        <li><b>회의할 때</b> — 「PDF 정오표」를 인쇄해 체크칸에 표시하거나, 「브라우저 체크하기」로 같이 보며 체크한 뒤 [체크 결과 저장]을 누르세요.</li>
         <li><b>체크한 것을 다시 올릴 때</b> — ④ 정오 판정 아래 「체크본 가져오기」로 저장한 파일(.json · .xlsx)을 고른 뒤, 여기서 [다시 만들기]를 누르세요.</li>
       </ol></div>`;
 }

@@ -245,7 +245,7 @@ class H(BaseHTTPRequestHandler):
             if path.startswith("/zip/"):
                 did = path.split("/")[2]
                 out_dir = config.doc_dir(did) / "05_반영본"
-                fs = sorted(f for f in out_dir.glob("*") if f.is_file()) if out_dir.exists() else []
+                fs = sorted(f for f in out_dir.glob("*정오표*") if f.is_file()) if out_dir.exists() else []  # 정오표 파일만 (윤문본 빼고)
                 if not fs:
                     return self._send(404, "아직 만든 파일이 없습니다.", "text/plain; charset=utf-8")
                 buf = BytesIO()
