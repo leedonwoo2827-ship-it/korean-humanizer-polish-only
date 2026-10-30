@@ -431,17 +431,17 @@ function editsCard(){
   const all = DS.rewrite.edits, shown = editsShown(), on = all.filter(eOn).length;
   const opt = (v, t, cur) => `<option value="${v}" ${String(cur)===String(v)?"selected":""}>${esc(t)}</option>`;
   return `<div class="card"><h2>수정 후보 · 체크 <span class="mute" style="font-weight:400">— 체크한 것만 정오표에 들어갑니다. 수정확률 60% 이상은 처음부터 체크되어 있습니다. 반영 파일은 늘 책 전체 한 번에 나옵니다.</span></h2>
+    <div class="row" style="margin-bottom:4px"><button class="big primary" onclick="exportDoc(true)">체크 끝 → 정오표 만들기 (⑤ 정오표 받기로)</button>
+      <label class="iconbtn" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 12px" title="정오표 검토 HTML 에서 저장한 .json 이나, 「전체 후보」 시트를 고친 정오표 .xlsx">체크본 가져오기
+        <input type="file" accept=".json,.xlsx" hidden onchange="importReview(this.files[0]);this.value=''"></label>
+      <button onclick="secondPass()" title="체크한 대로 고친 글을 새 글로 넣어 한 번 더 진단·윤문합니다">2차 윤문 (고친 글을 새 글로)</button></div>
+    <div class="mute" style="margin:0 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)">회의할 때는 「정오표_검토.pdf」를 인쇄하거나 「정오표_검토.html」에서 체크한 뒤 [체크 결과 저장] → 여기 「체크본 가져오기」. 엑셀은 「전체 후보」 시트의 반영(O) · 수정 문구 · 메모를 고쳐 올리면 됩니다.</div>
     <div class="row" style="margin-bottom:8px">
       <select onchange="EF.min=+this.value;EF.show=200;renderResult()">${[[0,"확률 전체"],[.4,"40% 이상"],[.6,"60% 이상"],[.8,"80% 이상"]].map(([v,t])=>opt(v,t,EF.min)).join("")}</select>
       <button class="iconbtn" onclick="setEdits(true)">보이는 것 모두 체크</button><button class="iconbtn" onclick="setEdits(false)">보이는 것 모두 해제</button><button class="iconbtn" onclick="setEdits(null)">기본값으로</button>
       <span class="mute">보이는 ${shown.length}건 · 전체 ${all.length}건 중 체크 <b>${on}</b>건</span></div>
     <div id="paras">${shown.slice(0, EF.show).map(editHtml).join("") || `<div class="empty">이 조건에 맞는 수정 후보가 없습니다.</div>`}</div>
     ${shown.length > EF.show ? `<div class="row" style="margin-top:8px"><button onclick="EF.show+=200;renderResult()">더 보기 (${shown.length - EF.show}건 남음)</button></div>` : ""}
-    <div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc(true)">체크 끝 → 정오표 만들기 (⑤ 정오표 받기로)</button>
-      <label class="iconbtn" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 12px" title="정오표 검토 HTML 에서 저장한 .json 이나, 「전체 후보」 시트를 고친 정오표 .xlsx">체크본 가져오기
-        <input type="file" accept=".json,.xlsx" hidden onchange="importReview(this.files[0]);this.value=''"></label>
-      <button onclick="secondPass()" title="체크한 대로 고친 글을 새 글로 넣어 한 번 더 진단·윤문합니다">2차 윤문 (고친 글을 새 글로)</button></div>
-    <div class="mute" style="margin-top:6px">회의할 때는 「정오표_검토.pdf」를 인쇄하거나 「정오표_검토.html」에서 체크한 뒤 [체크 결과 저장] → 여기 「체크본 가져오기」. 엑셀은 「전체 후보」 시트의 반영(O) · 수정 문구 · 메모를 고쳐 올리면 됩니다.</div>
   </div>`;
 }
 // ⑤ 정오표 받기: 만든 파일을 큰 버튼으로 (보기는 새 탭, 엑셀·zip 은 내려받기)
