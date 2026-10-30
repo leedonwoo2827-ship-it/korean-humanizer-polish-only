@@ -104,6 +104,10 @@ del{background:var(--del);color:var(--delfg);border-radius:2px}
 .note{background:var(--wash);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:13px}
 .iconbtn{padding:2px 7px;font-size:12px}
 .empty{padding:30px;text-align:center;color:var(--mute)}
+.dash td{vertical-align:middle}.dash tr.cur td{background:var(--wash)}.dash td.num,.dash th.num{text-align:right;font-variant-numeric:tabular-nums}
+.dash a{color:var(--fg)}.dash input[type=checkbox]{width:16px;height:16px;vertical-align:middle}
+.warnbox{border:1px solid var(--warn);background:var(--warnbg);border-radius:10px;padding:8px 12px;margin:8px 0}
+.engsel{width:100%;margin:2px 0 8px;background:var(--rail-hover);color:var(--rail-fg);border-color:var(--rail-line);font-size:12px}
 @media (max-width:820px){body{display:block}.rail{width:auto;height:auto;position:static}.nav{max-height:240px}main{height:auto}.wrap{padding:16px}.grid2{grid-template-columns:1fr}}
 </style></head>
 <body>
@@ -125,7 +129,7 @@ const api = async (url, opt) => { const r = await fetch(url, opt); const j = awa
 function toast(t, ms=3500){ const e=$("toast"); e.textContent=t; e.style.display="block"; e.onclick=()=>e.style.display="none"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",ms) }
 
 let APP = null, DS = null, DEC = {}, timer = null, wasRunning = false, rendered = null, SEV = "all";
-const route = () => { const m = location.hash.match(/^#\/d\/(.+)$/); return m ? {view:"doc", id:decodeURIComponent(m[1])} : {view:"new"} };
+const route = () => { const m = location.hash.match(/^#\/d\/(.+)$/); return m ? {view:"doc", id:decodeURIComponent(m[1])} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
 window.addEventListener("hashchange", () => { rendered = null; DS = null; refresh() });
 
 async function refresh(){
@@ -139,7 +143,7 @@ async function refresh(){
     }
     renderNav(); renderView();
   }catch(e){ $("view").innerHTML = `<div class="empty">서버에 연결할 수 없습니다. run.bat 창이 열려 있는지 확인하고,<br>주소창에 <b>http://localhost:8767/</b> 를 입력해 보세요.</div>` }
-  clearTimeout(timer); timer = setTimeout(refresh, APP && (APP.job.running || (APP.codex && (APP.codex.checking || APP.codex.login_open))) ? 1200 : 6000);
+  clearTimeout(timer); timer = setTimeout(refresh, APP && (APP.job.running || ["codex","claude"].some(k => APP[k] && (APP[k].checking || APP[k].login_open))) ? 1200 : 6000);
 }
 
 /* ---------- 왼쪽 ---------- */
@@ -147,26 +151,30 @@ function gchip(g){ return g ? `<span class="chip ${g<="B"?"ok":g==="C"?"warn":"b
 function renderNav(){
   const r = route();
   let h = `<a href="#/new" class="${r.view==="new"?"on":""}"><span class="nav-no">＋</span><span class="nav-t">새 글 넣기<em>파일 끌어다 놓기 · 붙여넣기</em></span></a>`;
+  h += `<a href="#/dash" class="${r.view==="dash"?"on":""}"><span class="nav-no">▦</span><span class="nav-t">대시보드<em>체크한 글을 진단 → 윤문까지 이어서</em></span></a>`;
   h += `<div class="nav-sec">내 글</div>`;
   if(!APP.docs.length) h += `<div class="nav-sec" style="letter-spacing:0">아직 없습니다. 글을 넣으면 여기에 쌓입니다.</div>`;
   for(const d of [...APP.docs].reverse()){
-    const f = d.found ? `<span class="chip">S1 ${d.found.S1} · S2 ${d.found.S2}</span>` : `<span class="chip">진단 전</span>`;
+    const f = (APP.batch.cur === d.id && APP.job.running ? `<span class="chip warn">${APP.batch.waiting ? "⏸ 한도 대기" : "⏳ 진행 중"}</span>` : "")
+      + (d.found ? `<span class="chip">S1 ${d.found.S1} · S2 ${d.found.S2}</span>` : `<span class="chip">진단 전</span>`);
     h += `<a href="#/d/${encodeURIComponent(d.id)}" class="${r.view==="doc"&&r.id===d.id?"on":""}"><span class="nav-no">${esc(d.id)}</span>
       <span class="nav-t">${esc(d.title)}<em>${esc(d.genre||"")} · ${(d.chars||0).toLocaleString()}자</em>
       <span class="row" style="gap:4px;margin-top:3px">${f}${gchip(d.grade)}</span></span></a>`;
   }
   $("nav").innerHTML = h;
   const j = APP.job;
-  $("foot").innerHTML = codexFoot() + (j.name ? `<div>${j.running ? "⏳" : (j.error ? "⚠" : "✓")} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""}</div><div class="bar"><i style="width:${progress(j)}%"></i></div>` : "")
+  if(document.activeElement && document.activeElement.tagName === "SELECT" && $("foot").contains(document.activeElement)) return;  // 엔진을 고르는 중엔 다시 그리지 않는다
+  $("foot").innerHTML =engineFoot() + acctFoot("codex") + acctFoot("claude") + (j.name ? `<div>${j.running ? "⏳" : (j.error ? "⚠" : "✓")} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""}</div><div class="bar"><i style="width:${progress(j)}%"></i></div>` : "")
     + `<div title="${esc(APP.workspace)}">워크스페이스: ${esc(APP.workspace.split(/[\\/]/).slice(-2).join("/"))}</div>`;
-  if(wasRunning && !j.running) toast(j.error ? (j.error_kind==="auth" ? "⚠ Codex 로그인 만료 — 화면의 안내를 확인하세요" : "⚠ "+j.name+" 중단 — 화면의 안내를 확인하세요") : j.name+" 끝", 6000);
+  if(wasRunning && !j.running) toast(j.error ? ({auth:"⚠ Codex 로그인 만료", claude_auth:"⚠ Claude 로그인 만료", limit:"⚠ 사용 한도", cancel:"멈췄습니다"}[j.error_kind] || "⚠ "+j.name+" 중단") + " — 화면의 안내를 확인하세요" : j.name+" 끝", 6000);
   wasRunning = j.running;
 }
 function progress(j){
   if(!j.name) return 0;
   if(!j.running) return 100;
-  // 로그 머리줄 "[탐지] … N구간을 Codex" / "[윤문] … N구간을 Codex" 와 구간별 줄 수로 센다
-  const total = kind => { const m = j.log.map(l=>l.match(new RegExp("^\\["+kind+"\\] .*?(\\d+)구간을 Codex"))).filter(Boolean).pop(); return m ? +m[1] : 0 };
+  // 로그 머리줄 "[탐지] … N구간을 Codex로" / "[윤문] … N구간을 Claude로" 와 구간별 줄 수로 센다
+  if(j.name === "이어서 진행"){ const b = APP.batch; return Math.min(97, 3 + 94*Object.keys(b.done).length/(b.ids.length||1)) }
+  const total = kind => { const m = j.log.map(l=>l.match(new RegExp("^\\["+kind+"\\] .*?(\\d+)구간을 "))).filter(Boolean).pop(); return m ? +m[1] : 0 };
   const done = kind => j.log.filter(l=>new RegExp("^\\s+\\["+kind+"\\] 구간").test(l)).length;
   const nd = total("탐지"), nr = total("윤문");
   const det = nd ? Math.min(1, done("탐지")/nd) : 0;
@@ -178,6 +186,7 @@ function progress(j){
 function renderView(){
   const r = route();
   if(r.view === "new") return renderNew();
+  if(r.view === "dash") return renderDash();
   if(DS) return renderDoc();
 }
 
@@ -264,7 +273,10 @@ function renderDoc(){
         <button class="big primary" onclick="run('rewrite')" ${busy?"disabled":""}>② 윤문하기 (진단 → 윤문 → 감사)</button>
         <label class="mute"><input type="checkbox" id="m_audit" checked> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
       </div>
-      <div class="mute" style="margin-top:6px">원고 10쪽 남짓에 수 분 걸립니다. 한 번 한 구간은 기억해 두므로 다시 눌러도 빠릅니다. 창을 닫아도 계속 진행됩니다.</div>
+      ${busy ? `<div class="row" style="margin-top:8px"><button onclick="stopJob()">■ 멈춤</button><span class="mute">끝난 구간은 기억해 두므로 다시 누르면 이어서 합니다.</span></div>` : ""}
+      <div class="mute" style="margin-top:6px">엔진: ${esc(APP.engines[APP.settings.engine])} · 이 글을 처음부터 하면 호출 약 ${calls(docChars(), ["detect","rewrite"])}회.
+        한 번 한 구간은 기억해 두므로 다시 눌러도 빠릅니다. 창을 닫아도 계속 진행됩니다. 여러 편을 무인으로 돌리려면 <a href="#/dash">대시보드</a>를 쓰세요.</div>
+      ${bigWarn(calls(docChars(), ["detect","rewrite"]))}
       <div id="job"></div>
     </div>
     <div id="result"></div>`;
@@ -415,11 +427,112 @@ function jobAlert(j){
       <details><summary>직접 하려면</summary>프로그램 폴더의 <b>codex-다시로그인.bat</b> 을 더블클릭하거나, 명령창(cmd)에서 <code>codex logout</code> 다음 <code>codex login</code>.
         <button class="iconbtn" onclick="copyLogin()">명령 복사</button></details>
       <details><summary>원문 오류 보기</summary>${esc(raw)}</details>`
+    : j.error_kind === "claude_auth" ? `<b>⚠ 이 PC의 Claude 로그인이 만료됐습니다.</b> (${esc(j.name)})
+      <div class="row" style="margin-top:8px"><button class="primary" onclick="acctAct('claude','login')">Claude 다시 로그인</button>
+        <span>브라우저가 열리면 Claude 계정으로 로그인한 뒤, 멈췄던 버튼을 다시 누르세요. (명령창에서 <code>claude auth login</code> 으로도 됩니다)</span></div>
+      <details><summary>원문 오류 보기</summary>${esc(raw)}</details>`
+    : j.error_kind === "limit" ? `<b>⏸ 사용 한도에 걸려 멈췄습니다.</b> (${esc(j.name)})<div style="margin-top:4px;overflow-wrap:anywhere">${esc(j.error)}</div>
+      <div class="row" style="margin-top:8px">${engineSelect("")}<span class="mute">엔진을 바꾼 뒤 같은 버튼을 다시 누르면 남은 구간부터 이어서 합니다.</span></div>`
+    : j.error_kind === "cancel" ? `<b>■ 멈췄습니다.</b> <span class="mute">끝난 구간은 기억해 두었습니다. 다시 누르면 남은 구간부터 이어서 합니다.</span>`
     : `<b>⚠ ${esc(j.name)} 작업이 멈췄습니다.</b><div style="margin-top:4px;overflow-wrap:anywhere">${esc(j.error)}</div>`}</div>`;
+}
+async function stopJob(){
+  if(!confirm("지금 작업을 멈출까요? (끝난 구간은 기억해 두므로 다시 누르면 이어서 합니다. 진행 중인 구간 몇 개는 끝날 때까지 조금 걸립니다)")) return;
+  try{ await api("/api/stop",{method:"POST"}); toast("멈추는 중입니다 — 진행 중인 구간이 끝나면 멈춥니다.", 6000) }catch(e){ toast(e.message) }
+}
+
+/* ---------- 호출 수 어림 ---------- */
+// 진단 = 구간 수, 윤문 = 구간 수 + 감사 구간 수. 구간 = 약 APP.chunk 자
+const docChars = () => DS ? DS.paras.reduce((a,p)=>a+p.length, 0) : 0;
+function calls(chars, todo, audit=true){
+  const n = Math.max(1, Math.ceil((chars||0) / APP.chunk));
+  return (todo.includes("detect") ? n : 0) + (todo.includes("rewrite") ? n * (audit ? 2 : 1) : 0);
+}
+function bigWarn(c){
+  if(c <= 60) return "";
+  return `<div class="warnbox">⚠ 호출이 약 <b>${c}회</b>로 많습니다. ChatGPT·Claude 구독은 5시간마다 쓸 수 있는 양이 정해져 있어 중간에 <b>사용 한도</b>에 걸릴 수 있습니다.
+    엔진이 <b>자동</b>이면 Codex 한도에 걸릴 때 Claude로 넘어가고, 대시보드에서 돌리면 둘 다 막혀도 한도가 풀릴 때까지 기다렸다가 이어서 합니다.
+    단행본은 장(章)별로 나눠 넣으면 하나씩 확인하기도 쉽습니다.</div>`;
+}
+
+/* ---------- 대시보드: 체크한 글 이어서 진행 ---------- */
+let PICK = (()=>{ try{ return new Set(JSON.parse(localStorage.getItem("khum.pick")||"[]")) }catch(e){ return new Set() } })();
+const savePick = () => { try{ localStorage.setItem("khum.pick", JSON.stringify([...PICK])) }catch(e){} };
+const STEP = {detect:"진단", rewrite:"윤문"};
+const DONE = {ok:["ok","끝"], part:["warn","일부 실패"], limit:["warn","한도로 멈춤"], stop:["bad","멈춤"], fail:["bad","실패"]};
+function dashStatus(d){
+  const b = APP.batch, run = APP.job.running && APP.job.name === "이어서 진행";
+  if(run && b.cur === d.id) return b.waiting ? `<span class="tag warn">⏸ 한도 대기 · ${esc(b.waiting)}에 다시</span>` : `<span class="tag warn">⏳ 진행 중</span>`;
+  if(run && b.ids.includes(d.id) && !(d.id in b.done)) return `<span class="tag plain">대기열</span>`;
+  if(d.id in b.done && b.done[d.id] !== "ok"){ const [c, t] = DONE[b.done[d.id]]; return `<span class="tag ${c}">${t}</span>` }
+  if(!d.todo.length) return `<span class="tag">✓ 윤문 끝</span>`;
+  return d.todo.map(s=>`<span class="tag plain">${STEP[s]} 남음</span>`).join(" ") + (d.failed ? ` <span class="tag bad">실패 ${d.failed}구간</span>` : "");
+}
+function renderDash(){
+  const j = APP.job, run = j.running, ids = APP.docs.map(d=>d.id);
+  for(const id of [...PICK]) if(!ids.includes(id)) PICK.delete(id);
+  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.error, APP.settings, [...PICK], ALERT_OFF]);
+  if(rendered === key){ dashLog(); return }
+  rendered = key;
+  const picked = APP.docs.filter(d=>PICK.has(d.id));
+  const audit = $("d_audit") ? $("d_audit").checked : true;
+  const total = picked.reduce((a,d)=>a+calls(d.chars, d.todo, audit), 0);
+  const s = APP.settings;
+  $("view").innerHTML = `<h1>대시보드</h1>
+    <div class="sub">글을 체크하고 [이어서 진행]을 누르면 한 편씩 <b>진단 → 윤문 → 감사</b>까지 끝까지 돌립니다. 이미 끝난 단계는 건너뛰고, 실패한 구간만 다시 합니다.
+      사용 한도에 걸리면 기다렸다가 같은 글부터 이어서 하므로 퇴근 전에 걸어 두면 됩니다.</div>
+    <div class="card"><h2><span class="n">1</span>엔진 · 사용 한도</h2>
+      <div class="grid2">
+        <span>엔진</span><div class="row">${engineSelect("")}<span class="mute">자동 = Codex(ChatGPT)로 하다가 한도에 걸리면 Claude로 넘어갑니다.</span></div>
+        <span>한도면</span><div class="row">최대 <input type="number" id="d_wait" min="0" max="48" step="1" value="${s.wait_hours}" style="width:70px" onchange="saveSettings({wait_hours:this.value})"> 시간까지 기다렸다가 이어서
+          <span class="mute">0 = 기다리지 않고 바로 멈춤. 기다리는 동안 콘솔 창(run.bat)은 켜 두세요(PC 절전은 막습니다).</span></div>
+      </div></div>
+    <div class="card"><h2><span class="n">2</span>글 고르기 <span class="mute" style="font-weight:400">— ${picked.length}편 체크 · 호출 약 ${total}회</span></h2>
+      ${APP.docs.length ? `<table class="dash"><thead><tr><th><input type="checkbox" ${picked.length && picked.length===APP.docs.length?"checked":""} onchange="pickAll(this.checked)" ${run?"disabled":""} title="모두"></th>
+        <th>번호</th><th>제목</th><th class="num">글자수</th><th class="num">남은 호출</th><th>상태</th><th>흔적</th><th>등급</th></tr></thead><tbody>
+        ${APP.docs.map(d=>`<tr class="${APP.batch.cur===d.id && run?"cur":""}"><td><input type="checkbox" ${PICK.has(d.id)?"checked":""} ${run?"disabled":""} onchange="pick('${esc(d.id)}',this.checked)"></td>
+          <td><b>${esc(d.id)}</b></td><td><a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a><div class="mute" style="font-size:12px">${esc(d.genre||"")}</div></td>
+          <td class="num">${(d.chars||0).toLocaleString()}</td><td class="num">${d.todo.length ? calls(d.chars, d.todo, audit) : "-"}</td>
+          <td>${dashStatus(d)}</td><td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td>
+          <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b>` : '<span class="mute">-</span>'}</td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">아직 글이 없습니다. <a href="#/new">새 글 넣기</a>에서 넣으세요.</div>`}
+      ${bigWarn(total)}
+      <div class="row" style="margin-top:10px">
+        ${run ? `<button class="big" onclick="stopJob()">■ 멈춤</button>` : `<button class="big primary" onclick="runBatch()" ${picked.length?"":"disabled"}>▶ 체크한 ${picked.length}편 이어서 진행</button>`}
+        <label class="mute"><input type="checkbox" id="d_audit" ${audit?"checked":""} ${run?"disabled":""} onchange="rendered=null;renderDash()"> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
+      </div>
+      <div class="mute" style="margin-top:6px">윤문이 끝나면 글마다 들어가서 문단별로 채택을 확인하고 [반영]을 누르세요. 반영은 자동으로 하지 않습니다.</div>
+      <div id="dlog"></div></div>`;
+  $("dlog").dataset.sig = ""; dashLog();
+}
+function dashLog(){
+  const el = $("dlog"), j = APP.job; if(!el) return;
+  if(!j.name){ el.innerHTML = ""; return }
+  const sig = j.log.length+"|"+j.running+"|"+ALERT_OFF;
+  if(el.dataset.sig === sig) return; el.dataset.sig = sig;
+  const log = `<pre class="log">${esc(j.log.join("\n")||"시작 중…")}</pre>`;
+  el.innerHTML = `<div style="margin-top:10px">` + jobAlert(j) + (j.running ? `<div class="bar"><i style="width:${progress(j)}%"></i></div>${log}`
+    : `<details><summary class="mute">${j.error ? "⚠" : "✓"} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""} ${j.error ? "중단" : "끝"} (${esc(j.ended||"")}) — 로그 보기</summary>${log}</details>`) + `</div>`;
+  const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
+}
+function pick(id, on){ on ? PICK.add(id) : PICK.delete(id); savePick(); renderDash() }
+function pickAll(on){ PICK = new Set(on ? APP.docs.map(d=>d.id) : []); savePick(); renderDash() }
+async function runBatch(){
+  const ids = APP.docs.filter(d=>PICK.has(d.id)).map(d=>d.id);
+  if(!confirm(`${ids.length}편을 진단 → 윤문${$("d_audit").checked ? " → 감사" : ""}까지 차례로 돌립니다. 계속할까요?`)) return;
+  try{ await api("/api/batch",{method:"POST",body:JSON.stringify({ids, audit:$("d_audit").checked})}); toast("시작했습니다. 창을 닫아도 계속 진행됩니다.", 5000); refresh() }
+  catch(e){ toast(e.message, 8000) }
+}
+async function saveSettings(patch){
+  try{ const j = await api("/api/settings",{method:"POST",body:JSON.stringify(patch)}); APP.settings = j.settings; rendered = null; renderNav(); renderView(); toast("저장했습니다.") }
+  catch(e){ toast(e.message) }
+}
+function engineSelect(cls){
+  return `<select class="${cls}" onchange="saveSettings({engine:this.value})" title="진단·윤문에 쓸 AI">${Object.entries(APP.engines).map(([k,v])=>`<option value="${k}" ${APP.settings.engine===k?"selected":""}>${esc(v)}</option>`).join("")}</select>`;
 }
 function updateJobBox(){
   const el = $("job"), j = APP.job; if(!el) return;
-  if(!j.name || j.uid !== DS.doc.id){ el.innerHTML = ""; return }
+  if(!j.name || (j.uid !== DS.doc.id && !(j.name === "이어서 진행" && APP.batch.ids.includes(DS.doc.id)))){ el.innerHTML = ""; return }
   const sig = j.log.length+"|"+j.running+"|"+ALERT_OFF;
   if(el.dataset.sig === sig) return; el.dataset.sig = sig;
   const log = `<pre class="log">${esc(j.log.join("\n")||"시작 중…")}</pre>`;
@@ -428,31 +541,42 @@ function updateJobBox(){
   const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
 }
 
-/* ---------- Codex 계정 (좌하단) ---------- */
-let CODEXMENU = false, CODEXSEEN = null;
-function codexFoot(){
-  const c = APP.codex || {};
-  if(c.verified === false && CODEXSEEN !== c.checked_at){ CODEXMENU = true; CODEXSEEN = c.checked_at }
+/* ---------- 엔진 · 계정 (좌하단): Codex(ChatGPT) · Claude ---------- */
+const ACCT = {codex:{name:"Codex", who:"ChatGPT"}, claude:{name:"Claude", who:"Claude"}};
+const MENU = {codex:false, claude:false}, SEEN = {};
+function engineFoot(){ return `<div style="color:var(--rail-mute)">진단·윤문 엔진</div>${engineSelect("engsel")}` }
+function acctFoot(k){
+  const c = APP[k] || {}, A = ACCT[k], e = APP.settings.engine;
+  const used = e === k || (e === "auto" && k === "codex");  // 쓰는 엔진이 막혔을 때만 메뉴를 저절로 연다
+  if(used && c.verified === false && SEEN[k] !== c.checked_at){ MENU[k] = true; SEEN[k] = c.checked_at }
   const busy = c.checking || c.login_open;
   const dot = busy ? "⏳" : c.verified ? "🟢" : (c.verified === false || c.logged_in === false) ? "🔴" : "🟡";
-  const head = c.installed === false ? "Codex 없음" : c.logged_in === false ? "Codex 로그인 필요"
-    : c.verified === false ? "Codex 로그인 만료" : c.verified ? "Codex 정상" : "Codex 확인 필요";
-  return `<div class="cxbtn" onclick="CODEXMENU=!CODEXMENU;renderNav()" title="눌러서 로그인 · 로그아웃 · 새로고침"><span>${dot} ${head}</span><span class="cxmail">${esc(c.email||"")}</span><span>${CODEXMENU?"▾":"▸"}</span></div>
-    ${CODEXMENU ? `<div class="cxmenu">
+  const head = c.installed === false ? `${A.name} 없음` : c.logged_in === false ? `${A.name} 로그인 필요`
+    : c.verified === false ? `${A.name} 로그인 만료` : c.verified ? `${A.name} 정상` : `${A.name} 확인 필요`;
+  return `<div class="cxbtn" onclick="MENU.${k}=!MENU.${k};renderNav()" title="눌러서 로그인 · 로그아웃 · 새로고침"><span>${dot} ${head}</span><span class="cxmail">${esc(c.email||"")}</span><span>${MENU[k]?"▾":"▸"}</span></div>
+    ${MENU[k] ? `<div class="cxmenu">
       <div>${esc(c.message||"")}${c.checked_at ? ` <span style="opacity:.7">· ${esc(c.checked_at)}</span>` : ""}</div>
       <div class="row" style="gap:4px;margin-top:6px">
-        <button onclick="codexAct('refresh')" ${busy?"disabled":""} title="로그인 상태 + 실제로 한 번 짧게 불러 봅니다 (10~30초)">새로고침</button>
-        <button onclick="codexLogin(true)" ${busy||c.installed===false?"disabled":""}>로그인</button>
-        <button onclick="codexAct('logout')" ${busy||c.installed===false?"disabled":""}>로그아웃</button>
+        <button onclick="acctAct('${k}','refresh')" ${busy?"disabled":""} title="로그인 상태 + 실제로 한 번 짧게 불러 봅니다 (10~30초)">새로고침</button>
+        <button onclick="acctAct('${k}','login')" ${busy||c.installed===false?"disabled":""}>로그인</button>
+        <button onclick="acctAct('${k}','logout')" ${busy||c.installed===false?"disabled":""}>로그아웃</button>
       </div></div>` : ""}`;
 }
-async function codexAct(what){
-  if(what==="logout" && !confirm("이 PC의 Codex 로그인을 해제할까요? (다시 [로그인]해야 윤문을 쓸 수 있습니다)")) return;
-  try{ await api("/api/codex/"+what,{method:"POST"}); toast(what==="refresh" ? "Codex를 실제로 불러 보는 중입니다 (10~30초)" : "로그아웃했습니다."); refresh() }catch(e){ toast(e.message, 8000) }
+async function acctAct(k, what){
+  const A = ACCT[k];
+  if(what==="logout" && !confirm(`이 PC의 ${A.name} 로그인을 해제할까요? (다시 [로그인]해야 ${A.name}로 윤문할 수 있습니다)`
+    + (k==="claude" ? "\n\n※ 이 PC의 Claude Code(claude 명령)도 같이 로그아웃됩니다." : ""))) return;
+  if(what==="login") return k==="codex" ? codexLogin(true) : acctLogin(k);
+  try{ await api(`/api/${k}/${what}`,{method:"POST"}); toast(what==="refresh" ? `${A.name}를 실제로 불러 보는 중입니다 (10~30초)` : "로그아웃했습니다."); refresh() }catch(e){ toast(e.message, 8000) }
+}
+async function acctLogin(k){
+  try{ await api(`/api/${k}/login`,{method:"POST",body:"{}"});
+    MENU[k] = true; toast(`새 창과 브라우저가 열립니다. ${ACCT[k].who} 계정으로 로그인하세요. 끝나면 자동으로 확인합니다.`, 9000); refresh()
+  }catch(e){ toast(e.message, 8000) }
 }
 async function codexLogin(relogin){
   try{ await api("/api/codex/login",{method:"POST",body:JSON.stringify({relogin: relogin===true})});
-    CODEXMENU = true; toast("새 창과 브라우저가 열립니다. ChatGPT 계정으로 로그인하세요. 끝나면 자동으로 확인합니다.", 9000); refresh()
+    MENU.codex = true; toast("새 창과 브라우저가 열립니다. ChatGPT 계정으로 로그인하세요. 끝나면 자동으로 확인합니다.", 9000); refresh()
   }catch(e){ toast(e.message, 8000) }
 }
 function copyLogin(){ navigator.clipboard.writeText("codex logout && codex login").then(()=>toast("복사했습니다. 명령창에 붙여 넣으세요.")) }

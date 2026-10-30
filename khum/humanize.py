@@ -1,6 +1,7 @@
 """윤문 파이프라인: 트리아지 → 탐지 → 윤문 → 감사 → 등급.
 
-글을 약 2,500자 구간으로 묶어 구간마다 Codex를 부른다 (동시 3, 캐시).
+글을 약 6,000자 구간으로 묶어 구간마다 엔진(Codex · Claude, llm.py)을 부른다 (동시 3, 캐시).
+구간이 작으면 호출이 너무 많아 구독 사용 한도에 금방 닿는다 (26만 자 원고 = 진단 106회였음).
   detect(did)   02_탐지/detect.json   흔적 · 분류(A–K) · 심각도(S1–S3) · 원문 구절 · 이유 + 구간별 트리아지
   rewrite(did)  03_윤문/rewrite.json  문단별 윤문 + 변경률 · 보존 검사 + 감사(다시 탐지) → 남은 흔적
                 변경률 50% 초과 · 숫자/인용 누락 문단은 한 번 다시 윤문시킨다 (롤백 후 재윤문)
@@ -10,10 +11,10 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from . import audit, config, taxonomy
-from .codex import CodexAuthError, ask_codex
+from . import audit, config, llm, taxonomy
+from .codex import EngineStop
 
-CHUNK = 2500
+CHUNK = 6000
 TRIAGE = ["거의 손댈 것 없음", "서식만 정리", "문장 단위 윤문"]
 
 PRINCIPLES = """4대 철칙
@@ -170,25 +171,34 @@ def cached(did, stage_name, prompt, schema, label):
     if f.exists():
         print(f"  [cache] {label}")
         return json.loads(f.read_text(encoding="utf-8"))
-    print(f"  [codex] {label} …", flush=True)
-    res = ask_codex(prompt, schema)
+    print(f"  [{llm.label().lower()}] {label} …", flush=True)
+    res = llm.ask(prompt, schema)
     f.write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
     return res
 
 
 def run_chunks(fn, groups, workers=3):
-    """구간마다 fn(k, ids). 로그인 만료는 바로 멈추고, 그 밖의 실패는 그 구간만 비운다."""
+    """구간마다 fn(k, ids). 로그인 만료 · 사용 한도 · 멈춤이면 남은 구간은 부르지 않고 멈춘다.
+    그 밖의 실패는 그 구간만 비운다. (끝난 구간은 캐시에 남아 다시 누르면 이어진다)"""
+    stop = []
+
     def one(arg):
         k, ids = arg
+        if stop:
+            return None
         try:
             return fn(k, ids)
-        except CodexAuthError:
-            raise
+        except EngineStop as e:
+            stop.append(e)
         except Exception as e:
             print(f"  [오류] 구간 {k + 1}: {e}")
-            return None
+        return None
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(one, enumerate(groups)))
+        out = list(ex.map(one, enumerate(groups)))
+    if stop:
+        print(f"  [멈춤] {sum(r is not None for r in out)}/{len(groups)}구간까지 했습니다 — 다시 누르면 남은 구간부터 이어서 합니다")
+        raise stop[0]
+    return out
 
 
 def _doc_paras(did):
@@ -201,9 +211,10 @@ def _doc_paras(did):
 # ---------- 탐지 ----------
 def detect(did):
     d, paras = config.doc(did), _doc_paras(did)
-    groups = chunks(paras)
+    old = config.load(did, "02_탐지", "detect.json")  # 다시 진단이면 예전 구간 그대로 — 캐시가 맞아 실패 구간만 부른다
+    groups = [c["ids"] for c in old["chunks"]] if old and sum(len(c["ids"]) for c in old["chunks"]) == len(paras) else chunks(paras)
     table, guide = taxonomy.table_text(), taxonomy.guidance_text()
-    print(f"[탐지] {d['title']} — 문단 {len(paras)}개 · {len(groups)}구간을 Codex로 진단")
+    print(f"[탐지] {d['title']} — 문단 {len(paras)}개 · {len(groups)}구간을 {llm.label()}로 진단")
 
     def fn(k, ids):
         prompt = DETECT_PROMPT.format(genre=d.get("genre", "기타"), table=table, guidance=guide,
@@ -228,6 +239,21 @@ def detect(did):
 
 
 # ---------- 윤문 · 감사 ----------
+def regroup(det_chunks, paras):
+    """진단 구간을 약 CHUNK 자로 다시 묶는다 — 예전(2,500자) 진단을 그대로 쓰면서 윤문 호출 수를 줄인다.
+    트리아지는 묶인 것 중 가장 센 것."""
+    out, n = [], 0
+    for ch in det_chunks:
+        size = sum(len(paras[i - 1]) for i in ch["ids"])
+        if out and n + size <= CHUNK:
+            out[-1] = {"ids": out[-1]["ids"] + ch["ids"], "triage": TRIAGE[max(TRIAGE.index(out[-1]["triage"]), TRIAGE.index(ch["triage"]))]}
+            n += size
+        else:
+            out.append({"ids": list(ch["ids"]), "triage": ch["triage"]})
+            n = size
+    return out
+
+
 def _rewrite_chunk(did, d, paras, ch, items, k, target_part, retry_note=""):
     ids = ch["ids"]
     found = "\n".join(f"- P{x['para']} [{x['code']} {x['severity']}] \"{x['old_text']}\" — {x['reason']}"
@@ -254,7 +280,8 @@ def rewrite(did, do_audit=True):
     det = config.load(did, "02_탐지", "detect.json") or detect(did)
     total = sum(len(p) for p in paras) + 2 * (len(paras) - 1)
     target = d.get("target")
-    print(f"[윤문] {d['title']} — {len(det['chunks'])}구간을 Codex로 윤문" + (f" (목표 {target['chars']}자)" if target else ""))
+    groups = regroup(det["chunks"], paras)
+    print(f"[윤문] {d['title']} — {len(groups)}구간을 {llm.label()}로 윤문" + (f" (목표 {target['chars']}자)" if target else ""))
 
     def fn(k, ch):
         ids = ch["ids"]
@@ -300,9 +327,9 @@ def rewrite(did, do_audit=True):
             res["residual"] = [x for x in det["items"] if x["para"] in ids]
         return res
 
-    results = run_chunks(fn, det["chunks"])
+    results = run_chunks(fn, groups)
     rows, notes, checks = [], [], {"genre_kept": True, "register_kept": True, "no_new_flourish": True}
-    for ch, res in zip(det["chunks"], results):
+    for ch, res in zip(groups, results):
         if res is None:  # 실패한 구간은 원문 유지
             res = {"rows": [_para_row(i, paras[i - 1], paras[i - 1]) for i in ch["ids"]], "note": "윤문 실패 — 다시 누르세요.", "failed": True}
         for r in res["rows"]:

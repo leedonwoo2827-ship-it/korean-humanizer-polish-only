@@ -8,6 +8,7 @@ workspace/
     03_윤문/          rewrite.json (문단별 윤문 · 감사), cache/
     04_검토/          decisions.json (문단별 채택/원문 유지 · 직접 고친 문장)
     05_반영본/        <제목>_윤문본.docx · .txt · <제목>_진단표.xlsx
+  _settings.json      콘솔 설정 (엔진 · 한도 대기 시간)
 backup/               [보관]한 글 (지우지 않음)
 """
 import json
@@ -22,6 +23,10 @@ WS = Path(os.environ.get("KHUM_WORKSPACE", ROOT / "workspace"))
 BACKUP = WS.parent / "backup"
 STAGES = ["01_원문", "02_탐지", "03_윤문", "04_검토", "05_반영본"]
 
+SETTINGS = WS / "_settings.json"
+ENGINES = {"auto": "자동 (Codex 먼저, 한도면 Claude)", "codex": "Codex (ChatGPT)", "claude": "Claude"}
+DEFAULTS = {"engine": "auto", "wait_hours": 8}
+
 GENRES = ["단행본 원고", "논문·보고서", "칼럼·에세이", "보도자료·공문", "블로그·후기", "기타"]
 
 
@@ -32,6 +37,20 @@ def _read(p, default=None):
 def _write(p, data):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def settings():
+    return {**DEFAULTS, **_read(SETTINGS, {})}
+
+
+def save_settings(body):
+    s = settings()
+    if body.get("engine") in ENGINES:
+        s["engine"] = body["engine"]
+    if "wait_hours" in body:
+        s["wait_hours"] = max(0, min(48, float(body["wait_hours"] or 0)))
+    _write(SETTINGS, s)
+    return s
 
 
 def slug(title):

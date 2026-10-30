@@ -4,7 +4,7 @@
 (http://127.0.0.1:8767/ 로는 안 되는 자리가 있다 — 그래서 127.0.0.1 과 ::1 양쪽에 다 열어 두고, 안내·브라우저 열기는 localhost 로만.)
 
   GET  /                        콘솔 화면 (khum/console.html)
-  GET  /api/state               글 목록 · 보관함 · 작업 상태 · Codex 상태
+  GET  /api/state               글 목록 · 보관함 · 작업 상태 · Codex · Claude 상태 · 설정 · 이어서 진행 상태
   GET  /api/doc?id=01           글 상세 (원문 문단 · 탐지 · 윤문 · 체크 · 요약 · 반영본 파일)
   POST /api/new                 글 넣기: 파일(X-Filename) 또는 붙여넣기 JSON {title, text}
   POST /api/doc/meta?id=        제목 · 장르 · 목표 글자수 · 문체 샘플 저장
@@ -15,7 +15,10 @@
   POST /api/second?id=          2차 윤문: 지금 윤문본을 새 글로 넣는다
   POST /api/open?id=&stage=     탐색기로 폴더 열기
   POST /api/archive?id=         보관 (backup/ 으로 옮김) · POST /api/restore {name}
-  POST /api/codex/refresh|login|logout
+  POST /api/batch               대시보드: 체크한 글 {ids, audit} 을 진단 → 윤문까지 이어서 (한도면 기다림)
+  POST /api/stop                지금 작업 멈춤 (끝난 구간은 캐시에 남음)
+  POST /api/settings            엔진(auto · codex · claude) · 한도 대기 시간
+  POST /api/codex/refresh|login|logout · /api/claude/refresh|login|logout
   GET  /files/<id>/<path>[?dl=1]
 """
 import json
@@ -31,7 +34,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import audit, codex_auth, config, export, extract, humanize, taxonomy
+from . import audit, batch, claude_auth, codex_auth, config, export, extract, humanize, llm, taxonomy
 
 PORT = 8767
 CONSOLE = Path(__file__).with_name("console.html")
@@ -51,6 +54,7 @@ class Job:
                 return False
             self.name, self.uid, self.running, self.error, self.error_kind = name, uid, True, None, None
             self.log, self.started, self.ended = [], datetime.now(), None
+            llm.CANCEL.clear()
         threading.Thread(target=self._run, args=(fn,), daemon=True).start()
         return True
 
@@ -81,6 +85,8 @@ class Job:
             self.error, self.error_kind = str(e), getattr(e, "kind", None)
             if self.error_kind == "auth":
                 codex_auth.mark_expired()
+            if self.error_kind == "claude_auth":
+                claude_auth.mark_expired()
             print(f"[오류] {e}")
             real.write(traceback.format_exc())
         finally:
@@ -108,6 +114,9 @@ def brief(d):
         det = config.load(d["id"], "02_탐지", "detect.json")
         rw = config.load(d["id"], "03_윤문", "rewrite.json")
         out["chars"] = sum(len(p) for p in paras)
+        out["todo"] = batch.todo(d["id"]) if paras else []
+        if det:
+            out["failed"] = sum(bool(c.get("failed")) for c in det["chunks"]) + sum(bool(n.get("failed")) for n in (rw or {}).get("notes", []))
         if det:
             s = audit.summary(paras, det, rw, config.load(d["id"], "04_검토", "decisions.json") or {}, d.get("target"))
             out.update(found=s["found"], grade=s.get("grade"))
@@ -118,7 +127,8 @@ def brief(d):
 
 def app_state():
     return {"workspace": str(config.WS), "docs": [brief(d) for d in config.docs()], "backups": config.backups(),
-            "genres": config.GENRES, "job": JOB.state(), "codex": codex_auth.state()}
+            "genres": config.GENRES, "job": JOB.state(), "codex": codex_auth.state(), "claude": claude_auth.state(),
+            "settings": config.settings(), "engines": config.ENGINES, "batch": batch.state(), "chunk": humanize.CHUNK}
 
 
 def doc_state(did):
@@ -278,6 +288,26 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True, "backup": config.archive(did).name})
             if path == "/api/restore":
                 return self._send(200, {"ok": True, "doc": config.restore(js()["name"])})
+            if path == "/api/batch":
+                b = js()
+                ids = [i for i in b.get("ids", []) if any(d["id"] == i for d in config.docs())]
+                if not ids:
+                    raise ValueError("진행할 글을 체크하세요.")
+                ok = JOB.start("이어서 진행", None, lambda: batch.run(ids, do_audit=b.get("audit", True)))
+                return self._send(200 if ok else 409, {"ok": True} if ok else busy)
+            if path == "/api/stop":
+                llm.CANCEL.set()
+                return self._send(200, {"ok": True})
+            if path == "/api/settings":
+                return self._send(200, {"ok": True, "settings": config.save_settings(js())})
+            if path == "/api/claude/refresh":
+                claude_auth.check_async(deep=True)
+                return self._send(200, {"ok": True})
+            if path == "/api/claude/login":
+                claude_auth.login()
+                return self._send(200, {"ok": True})
+            if path == "/api/claude/logout":
+                return self._send(200, {"ok": True, "out": claude_auth.logout()})
             if path == "/api/codex/refresh":
                 codex_auth.check_async(deep=True)
                 return self._send(200, {"ok": True})
@@ -319,6 +349,7 @@ def serve(port=PORT, open_browser=True):
         pass
     config.WS.mkdir(parents=True, exist_ok=True)
     codex_auth.check_async(deep=False)
+    claude_auth.check_async(deep=False)
     print(f"[한국어 AI 윤문] {url}")
     print(f"[한국어 AI 윤문] 워크스페이스: {config.WS}")
     print(f"브라우저가 안 열리면 주소창에 {url} 을 직접 입력하세요. (127.0.0.1 말고 localhost)")
