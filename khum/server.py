@@ -21,6 +21,7 @@
   POST /api/settings            엔진(auto · codex · claude) · 한도 대기 시간
   POST /api/codex/refresh|login|logout · /api/claude/refresh|login|logout
   GET  /files/<id>/<path>[?dl=1]
+  GET  /zip/<id>                  05_반영본 전체를 zip 하나로
 """
 import json
 import mimetypes
@@ -31,6 +32,8 @@ import threading
 import traceback
 import urllib.parse
 import webbrowser
+import zipfile
+from io import BytesIO
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -149,9 +152,13 @@ def doc_state(did):
     out_dir = config.doc_dir(did) / "05_반영본"
     files = [{"name": f.name, "path": f"05_반영본/{f.name}", "time": _mtime(f)}
              for f in sorted(out_dir.glob("*")) if f.is_file()] if out_dir.exists() else []
+    # 체크를 바꾼 뒤 정오표를 아직 다시 만들지 않았으면 표시
+    dec_f = config.doc_dir(did) / "04_검토" / "decisions.json"
+    made = [f.stat().st_mtime for f in out_dir.glob("*정오표*")] if out_dir.exists() else []
+    stale = bool(made and dec_f.exists() and dec_f.stat().st_mtime > max(made) + 2)
     return {"doc": d, "paras": paras, "detect": det, "rewrite": rw, "decisions": dec,
             "summary": audit.summary(paras, det, rw, dec, d.get("target")) if det else None,
-            "codes": taxonomy.codes(), "groups": taxonomy.GROUPS, "files": files, "dir": str(config.doc_dir(did)),
+            "codes": taxonomy.codes(), "groups": taxonomy.GROUPS, "files": files, "stale": stale, "dir": str(config.doc_dir(did)),
             "pages": config.pages(did) if paras else [], "parts": humanize.parts(paras) if paras else [],
             "job": JOB.state()}
 
@@ -235,6 +242,19 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, app_state())
             if path == "/api/doc":
                 return self._send(200, doc_state(q["id"]))
+            if path.startswith("/zip/"):
+                did = path.split("/")[2]
+                out_dir = config.doc_dir(did) / "05_반영본"
+                fs = sorted(f for f in out_dir.glob("*") if f.is_file()) if out_dir.exists() else []
+                if not fs:
+                    return self._send(404, "아직 만든 파일이 없습니다.", "text/plain; charset=utf-8")
+                buf = BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                    for f in fs:
+                        z.write(f, f.name)
+                name = f"{config.doc(did).get('title') or did}_정오표_전체.zip"
+                return self._send(200, buf.getvalue(), "application/zip",
+                                  {"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name)})
             if path.startswith("/files/"):
                 _, _, did, rel = path.split("/", 3)
                 base = config.doc_dir(did).resolve()

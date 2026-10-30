@@ -54,6 +54,12 @@ button{border:1px solid var(--line);background:var(--card);border-radius:8px;pad
 button:hover{background:var(--wash)}
 button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
 button.big{font-size:14.5px;padding:9px 18px}
+.dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+.dl a{display:block;border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-decoration:none;color:inherit;background:var(--card)}
+.dl a:hover{border-color:var(--brand)}
+.dl a b{display:block;font-size:15px;margin-bottom:3px}
+.dl a span{font-size:12px;color:var(--mute)}
+.dl a.main{border:2px solid var(--brand)}
 button:disabled{opacity:.5;cursor:not-allowed}
 input[type=text],input[type=number],select,textarea{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:var(--card)}
 textarea{width:100%;resize:vertical;line-height:1.6}
@@ -129,10 +135,10 @@ const api = async (url, opt) => { const r = await fetch(url, opt); const j = awa
 function toast(t, ms=3500){ const e=$("toast"); e.textContent=t; e.style.display="block"; e.onclick=()=>e.style.display="none"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",ms) }
 
 let APP = null, DS = null, DEC = {}, timer = null, wasRunning = false, rendered = null, SEV = "all";
-// #/d/<글>/<단계>  단계 = setup(① 원고) · result(③ 결과 보기) · errata(④ 정오표).  ② 만들기 = #/dash (대시보드)
-const STAGE_NAV = [["setup","① 원고"], ["dash","② 만들기"], ["result","③ 결과 보기"], ["errata","④ 정오표"]];  // longform 의 ① 원고 ② 만들기 ③ 결과 보기 ④ 올리기
+// #/d/<글>/<단계>  단계 = setup(① 원고) · result(③ 교정 결과 보기) · errata(④ 정오 판정) · download(⑤ 정오표 받기).  ② 교정 돌리기 = #/dash (대시보드)
+const STAGE_NAV = [["setup","① 원고"], ["dash","② 교정 돌리기"], ["result","③ 교정 결과 보기"], ["errata","④ 정오 판정"], ["download","⑤ 정오표 받기"]];  // longform 의 ① 원고 ② 교정 돌리기 ③ 교정 결과 보기 ④ 올리기 + 받기
 const route = () => { const m = location.hash.match(/^#\/d\/([^/]+)(?:\/(\w+))?$/);
-  return m ? {view:"doc", id:decodeURIComponent(m[1]), stage:["setup","result","errata"].includes(m[2]) ? m[2] : "setup"} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
+  return m ? {view:"doc", id:decodeURIComponent(m[1]), stage:["setup","result","errata","download"].includes(m[2]) ? m[2] : "setup"} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
 let PART = "all", KEEP = 0;  // 위쪽 절 탭: all 또는 절 번호 (KEEP: 대시보드에서 절을 눌러 들어올 때 유지)
 const curId = () => { const r = route(); if(r.view === "doc") return r.id;
   let s = null; try{ s = localStorage.getItem("khum.doc") }catch(e){}
@@ -146,7 +152,7 @@ window.addEventListener("hashchange", () => { rendered = null; const r = route()
 async function refresh(){
   try{
     APP = await api("/api/state");
-    if(!location.hash && APP.docs.length){ location.hash = "#/dash"; return }  // 책이 있으면 ② 만들기부터
+    if(!location.hash && APP.docs.length){ location.hash = "#/dash"; return }  // 책이 있으면 ② 교정 돌리기부터
     const r = route();
     const finished = wasRunning && !APP.job.running;
     if(r.view === "doc" && (!DS || DS.doc.id !== r.id || finished)){
@@ -162,7 +168,7 @@ async function refresh(){
 function gchip(g){ return g ? `<span class="chip ${g<="B"?"ok":g==="C"?"warn":"bad"}">등급 ${g}</span>` : "" }
 function renderNav(){
   const r = route();
-  // 왼쪽: 단계 ① 원고 · ② 만들기 · ③ 결과 보기 · ④ 정오표 (longform 위쪽 탭을 옆으로). 책 고르기는 아래쪽(bookFoot)
+  // 왼쪽: 단계 ① 원고 · ② 교정 돌리기 · ③ 교정 결과 보기 · ④ 정오 판정 · ⑤ 정오표 받기 (longform 위쪽 탭을 옆으로). 책 고르기는 아래쪽(bookFoot)
   const id = curId(), d = APP.docs.find(x=>x.id===id);
   let h = "";
   if(d){
@@ -171,7 +177,8 @@ function renderNav(){
     const sub = {setup: `${(d.chars||0).toLocaleString()}자 · ${d.genre || ""}`,
                  dash: run ? (APP.batch.waiting ? "⏸ 한도 대기 중" : "⏳ 진행 중") : "절을 골라 단계별로 돌리기",
                  result: n ? `진단 ${doneN("detect")} · 윤문 ${doneN("rewrite")} · 감사 ${doneN("audit")} / ${n}부분` : "",
-                 errata: d.exported ? `반영 ${d.exported}` : "체크 · 반영 → 파일"};
+                 errata: "수정 후보마다 반영할지 체크",
+                 download: d.exported ? `${d.exported}에 만듦` : "엑셀 · PDF · 한 번에 받기"};
     for(const [k, name] of STAGE_NAV){
       const href = k === "dash" ? "#/dash" : `#/d/${encodeURIComponent(d.id)}/${k}`;
       const on = k === "dash" ? r.view === "dash" : r.view === "doc" && r.id === d.id && r.stage === k;
@@ -286,7 +293,7 @@ function renderDoc(){
         <div class="sub">${esc(d.source||"")} · 문단 ${DS.paras.length}개 · 공백 포함 ${DS.paras.join("\n\n").length.toLocaleString()}자 · ${esc(d.created||"")}</div></div>
       <div class="row"><button onclick="openDir('')">폴더 열기</button><button onclick="archiveDoc()" ${busy?"disabled":""} title="backup 폴더로 옮깁니다 (지우지 않음)">보관</button></div></div>`;
   if(stage !== "setup"){
-    $("view").innerHTML = head + partTabs() + `<div id="job"></div><div id="result"></div>`;
+    $("view").innerHTML = head + (stage === "download" ? "" : partTabs()) + `<div id="job"></div><div id="result"></div>`;
     updateJobBox(); renderResult(); return;
   }
   $("view").innerHTML = head + `
@@ -315,7 +322,7 @@ function renderDoc(){
       ${bigWarn(calls(docChars(), ["detect","rewrite"]))}
       <div id="job"></div>
     </div>
-    <div class="note">긴 원고는 <a href="#/dash">대시보드</a>에서 절을 골라 단계별로 돌리는 게 좋습니다. 결과는 왼쪽 ② 진단 · ③ 감사·등급 · ④ 정오표에서 절별로 봅니다.</div>`;
+    <div class="note">긴 원고는 <a href="#/dash">대시보드</a>에서 절을 골라 단계별로 돌리는 게 좋습니다. 결과는 왼쪽 ② 진단 · ③ 감사·등급 · ④ 정오 판정에서 절별로 보고, ⑤ 정오표 받기에서 책 전체를 받습니다.</div>`;
   updateJobBox();
 }
 
@@ -342,7 +349,7 @@ function renderSummary(){
   return h;
 }
 
-let RV = "audit";  // ③ 결과 보기 안의 보기: audit(감사 · 남은 흔적) · detect(진단 · 찾은 흔적)
+let RV = "audit";  // ③ 교정 결과 보기 안의 보기: audit(감사 · 남은 흔적) · detect(진단 · 찾은 흔적)
 function renderResult(){
   const el = $("result"); if(!el) return;
   const stage = route().stage;
@@ -393,6 +400,9 @@ function renderResult(){
         </tbody></table></div>`;
     } else h += `<div class="card empty">아직 윤문 전입니다. <a href="#/dash">대시보드</a>에서 「2 윤문」 · 「3 감사」를 누르세요.</div>`;
   }
+  if(stage === "download"){
+    h += rw && rw.edits ? getCard() : `<div class="card empty">아직 정오표를 만들 수정 후보가 없습니다. <a href="#/dash">② 교정 돌리기</a>에서 「2 윤문」까지 돌리세요.</div>`;
+  }
   if(stage === "errata"){
     if(rw && rw.edits) h += alerts + editsCard();
     else if(rw){
@@ -427,13 +437,42 @@ function editsCard(){
       <span class="mute">보이는 ${shown.length}건 · 전체 ${all.length}건 중 체크 <b>${on}</b>건</span></div>
     <div id="paras">${shown.slice(0, EF.show).map(editHtml).join("") || `<div class="empty">이 조건에 맞는 수정 후보가 없습니다.</div>`}</div>
     ${shown.length > EF.show ? `<div class="row" style="margin-top:8px"><button onclick="EF.show+=200;renderResult()">더 보기 (${shown.length - EF.show}건 남음)</button></div>` : ""}
-    <div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc()">반영 → 정오표 만들기 (엑셀 · 검토 PDF/HTML · 게시판)</button>
+    <div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc(true)">체크 끝 → 정오표 만들기 (⑤ 정오표 받기로)</button>
       <label class="iconbtn" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 12px" title="정오표 검토 HTML 에서 저장한 .json 이나, 「전체 후보」 시트를 고친 정오표 .xlsx">체크본 가져오기
         <input type="file" accept=".json,.xlsx" hidden onchange="importReview(this.files[0]);this.value=''"></label>
       <button onclick="secondPass()" title="체크한 대로 고친 글을 새 글로 넣어 한 번 더 진단·윤문합니다">2차 윤문 (고친 글을 새 글로)</button></div>
     <div class="mute" style="margin-top:6px">회의할 때는 「정오표_검토.pdf」를 인쇄하거나 「정오표_검토.html」에서 체크한 뒤 [체크 결과 저장] → 여기 「체크본 가져오기」. 엑셀은 「전체 후보」 시트의 반영(O) · 수정 문구 · 메모를 고쳐 올리면 됩니다.</div>
-    ${filesHtml()}
   </div>`;
+}
+// ⑤ 정오표 받기: 만든 파일을 큰 버튼으로 (보기는 새 탭, 엑셀·zip 은 내려받기)
+function getCard(){
+  const f = suf => DS.files.find(x => x.name.endsWith(suf));
+  const url = (x, dl) => `/files/${encodeURIComponent(DS.doc.id)}/${encodeURIComponent(x.path).replace(/%2F/g,"/")}${dl?"?dl=1":""}`;
+  const tile = (x, icon, name, sub, dl, main) => x ? `<a class="${main?"main":""}" href="${url(x, dl)}" ${dl?"":'target="_blank"'}><b>${icon} ${name}</b><span>${sub}</span></a>` : "";
+  const on = DS.rewrite.edits.filter(eOn).length;
+  if(!f("_정오표.xlsx")) return `<div class="card"><h2>정오표 받기</h2>
+    <div class="row"><span>아직 정오표 파일을 만들지 않았습니다. 지금 체크된 <b>${on}건</b>으로 만듭니다.</span>
+    <button class="big primary" onclick="exportDoc()">정오표 만들기</button></div></div>`;
+  const t = f("_정오표.xlsx").time;
+  return `<div class="card"><h2>정오표 받기 <span class="mute" style="font-weight:400">— 책 전체 한 번에 · ${esc(t)}에 만든 파일</span></h2>
+    ${DS.stale ? `<div class="alert" style="margin:0 0 8px"><b>체크를 바꾼 뒤 아직 파일을 다시 만들지 않았습니다.</b> 아래 파일은 바꾸기 전 내용입니다.
+      <button class="primary" style="margin-left:8px" onclick="exportDoc()">지금 체크(${on}건)로 다시 만들기</button></div>` : ""}
+    <div class="dl">
+      ${tile(f("_정오표.xlsx"), "📊", "엑셀 정오표", "체크한 것 + 전체 후보 · 저자에게 보내기", true, true)}
+      ${tile(f("_정오표_검토.pdf"), "🖨", "검토용 PDF 보기", "인쇄해서 회의 · 체크칸 · 메모칸", false)}
+      ${tile(f("_정오표_검토.html"), "✔", "화면에서 체크하기", "브라우저에서 체크 → [체크 결과 저장]", false)}
+      ${tile(f("_정오표_게시판.html"), "📋", "게시판용 보기", "체크한 것만 · 복사해 붙이기", false)}
+      ${tile(f("_윤문본.docx"), "📝", "고친 원고 (워드)", "체크한 수정을 반영한 원고", true)}
+      <a href="/zip/${encodeURIComponent(DS.doc.id)}"><b>⬇ 전부 한 번에 받기</b><span>위 파일 모두 · zip 하나</span></a>
+    </div>
+    <div class="row" style="margin-top:8px"><button class="iconbtn" onclick="exportDoc()">지금 체크(${on}건)로 다시 만들기</button>
+      <button class="iconbtn" onclick="openDir('05_반영본')">폴더 열기</button></div></div>
+    <div class="card"><h2>이렇게 쓰세요</h2>
+      <ol style="margin:0;padding-left:20px;line-height:1.9">
+        <li><b>저자에게 보낼 때</b> — 「엑셀 정오표」를 받아 메일에 붙이세요. 첫 시트가 정오표입니다.</li>
+        <li><b>회의할 때</b> — 「검토용 PDF 보기」를 인쇄해 체크칸에 표시하거나, 「화면에서 체크하기」로 같이 보며 체크한 뒤 [체크 결과 저장]을 누르세요.</li>
+        <li><b>체크한 것을 다시 올릴 때</b> — ④ 정오 판정 아래 「체크본 가져오기」로 저장한 파일(.json · .xlsx)을 고른 뒤, 여기서 [다시 만들기]를 누르세요.</li>
+      </ol></div>`;
 }
 function editHtml(e){
   const on = eOn(e), d = DEC[ekey(e)] || {}, pg = DS.pages[e.para-1], orig = DS.paras[e.para-1] || "";
@@ -542,9 +581,11 @@ async function run(what){
     toast(what==="detect" ? "AI 흔적을 찾는 중입니다." : "윤문을 시작했습니다. 진행 상황은 아래 로그에 나옵니다.", 5000); refresh();
   }catch(e){ toast(e.message, 8000) }
 }
-async function exportDoc(){
+async function exportDoc(go){
   try{ clearTimeout(decTimer); const j = await api("/api/export?id="+encodeURIComponent(DS.doc.id),{method:"POST",body:JSON.stringify(DS.rewrite?{decisions:DEC}:{})});
-    toast("만들었습니다: "+j.files.join(", "), 7000); DS = null; refresh() }catch(e){ toast(e.message, 9000) }
+    toast(go || route().stage === "download" ? "정오표를 만들었습니다. 아래에서 받으세요." : "만들었습니다: "+j.files.join(", "), 7000);
+    if(go) location.hash = `#/d/${encodeURIComponent(DS.doc.id)}/download`;
+    DS = null; refresh() }catch(e){ toast(e.message, 9000) }
 }
 async function secondPass(){
   if(!confirm("지금 체크한 대로 만든 윤문본을 새 글로 넣습니다. 새 글에서 [② 윤문하기]를 다시 누르세요.")) return;
@@ -655,7 +696,7 @@ function renderDash(){
       ${STAGES.map(([k]) => `<td>${stageCell(d, [pt], k)}</td>`).join("")}
       <td>${pt.todo && !pt.todo.length ? `<a href="#/d/${encodeURIComponent(d.id)}/errata" onclick="PART='${pt.k}';KEEP=1"><span class="tag">체크하러 가기 →</span></a>` : '<span class="mute">-</span>'}</td></tr>`).join("");
   };
-  $("view").innerHTML = `<h1>② 만들기 <span class="mute" style="font-weight:400;font-size:15px">· ${esc(BOOKS()[0] ? BOOKS()[0].id+" "+BOOKS()[0].title : "")}</span></h1>
+  $("view").innerHTML = `<h1>② 교정 돌리기 <span class="mute" style="font-weight:400;font-size:15px">· ${esc(BOOKS()[0] ? BOOKS()[0].id+" "+BOOKS()[0].title : "")}</span></h1>
     <div class="sub">글이나 절을 체크하고 단계 버튼을 누르면 고른 부분에만 그 단계를 합니다. 단계를 나눠 두었으니 <b>Codex 한도를 다른 일과 나눠 쓰며 시간대를 갈라 돌릴 수</b> 있습니다.
       한 단계 버튼은 그 단계만 하고(앞 단계가 안 된 곳은 건너뜀), ▶ 버튼은 앞 단계부터 차례로 합니다. 이미 된 곳은 건너뛰고, 실패한 구간만 다시 합니다.</div>
     ${acctLine()}
