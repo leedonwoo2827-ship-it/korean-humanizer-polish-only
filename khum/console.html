@@ -129,12 +129,24 @@ const api = async (url, opt) => { const r = await fetch(url, opt); const j = awa
 function toast(t, ms=3500){ const e=$("toast"); e.textContent=t; e.style.display="block"; e.onclick=()=>e.style.display="none"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",ms) }
 
 let APP = null, DS = null, DEC = {}, timer = null, wasRunning = false, rendered = null, SEV = "all";
-const route = () => { const m = location.hash.match(/^#\/d\/(.+)$/); return m ? {view:"doc", id:decodeURIComponent(m[1])} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
-window.addEventListener("hashchange", () => { rendered = null; DS = null; refresh() });
+// #/d/<글>/<단계>  단계 = setup(① 원고) · result(③ 결과 보기) · errata(④ 정오표).  ② 만들기 = #/dash (대시보드)
+const STAGE_NAV = [["setup","① 원고"], ["dash","② 만들기"], ["result","③ 결과 보기"], ["errata","④ 정오표"]];  // longform 의 ① 원고 ② 만들기 ③ 결과 보기 ④ 올리기
+const route = () => { const m = location.hash.match(/^#\/d\/([^/]+)(?:\/(\w+))?$/);
+  return m ? {view:"doc", id:decodeURIComponent(m[1]), stage:["setup","result","errata"].includes(m[2]) ? m[2] : "setup"} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
+let PART = "all", KEEP = 0;  // 위쪽 절 탭: all 또는 절 번호 (KEEP: 대시보드에서 절을 눌러 들어올 때 유지)
+const curId = () => { const r = route(); if(r.view === "doc") return r.id;
+  let s = null; try{ s = localStorage.getItem("khum.doc") }catch(e){}
+  return APP && APP.docs.some(d=>d.id===s) ? s : (APP && APP.docs.length ? APP.docs[APP.docs.length-1].id : null) };
+window.addEventListener("hashchange", () => { rendered = null; const r = route();
+  if(!DS || r.view !== "doc" || DS.doc.id !== r.id){ DS = null; if(!KEEP) PART = "all" }
+  KEEP = 0;
+  if(r.view === "doc") try{ localStorage.setItem("khum.doc", r.id) }catch(e){}
+  refresh() });
 
 async function refresh(){
   try{
     APP = await api("/api/state");
+    if(!location.hash && APP.docs.length){ location.hash = "#/dash"; return }  // 책이 있으면 ② 만들기부터
     const r = route();
     const finished = wasRunning && !APP.job.running;
     if(r.view === "doc" && (!DS || DS.doc.id !== r.id || finished)){
@@ -150,21 +162,27 @@ async function refresh(){
 function gchip(g){ return g ? `<span class="chip ${g<="B"?"ok":g==="C"?"warn":"bad"}">등급 ${g}</span>` : "" }
 function renderNav(){
   const r = route();
-  let h = `<a href="#/new" class="${r.view==="new"?"on":""}"><span class="nav-no">＋</span><span class="nav-t">새 글 넣기<em>파일 끌어다 놓기 · 붙여넣기</em></span></a>`;
-  h += `<a href="#/dash" class="${r.view==="dash"?"on":""}"><span class="nav-no">▦</span><span class="nav-t">대시보드<em>체크한 글을 진단 → 윤문까지 이어서</em></span></a>`;
-  h += `<div class="nav-sec">내 글</div>`;
-  if(!APP.docs.length) h += `<div class="nav-sec" style="letter-spacing:0">아직 없습니다. 글을 넣으면 여기에 쌓입니다.</div>`;
-  for(const d of [...APP.docs].reverse()){
-    const f = (APP.batch.cur === d.id && APP.job.running ? `<span class="chip warn">${APP.batch.waiting ? "⏸ 한도 대기" : "⏳ 진행 중"}</span>` : "")
-      + (d.found ? `<span class="chip">S1 ${d.found.S1} · S2 ${d.found.S2}</span>` : `<span class="chip">진단 전</span>`);
-    h += `<a href="#/d/${encodeURIComponent(d.id)}" class="${r.view==="doc"&&r.id===d.id?"on":""}"><span class="nav-no">${esc(d.id)}</span>
-      <span class="nav-t">${esc(d.title)}<em>${esc(d.genre||"")} · ${(d.chars||0).toLocaleString()}자</em>
-      <span class="row" style="gap:4px;margin-top:3px">${f}${gchip(d.grade)}</span></span></a>`;
-  }
-  $("nav").innerHTML = h;
+  // 왼쪽: 단계 ① 원고 · ② 만들기 · ③ 결과 보기 · ④ 정오표 (longform 위쪽 탭을 옆으로). 책 고르기는 아래쪽(bookFoot)
+  const id = curId(), d = APP.docs.find(x=>x.id===id);
+  let h = "";
+  if(d){
+    const ps = d.parts || [], n = ps.length, doneN = st => ps.filter(pt => !(pt.left||{})[st]).length;
+    const run = APP.batch.cur === d.id && APP.job.running;
+    const sub = {setup: `${(d.chars||0).toLocaleString()}자 · ${d.genre || ""}`,
+                 dash: run ? (APP.batch.waiting ? "⏸ 한도 대기 중" : "⏳ 진행 중") : "절을 골라 단계별로 돌리기",
+                 result: n ? `진단 ${doneN("detect")} · 윤문 ${doneN("rewrite")} · 감사 ${doneN("audit")} / ${n}부분` : "",
+                 errata: d.exported ? `반영 ${d.exported}` : "체크 · 반영 → 파일"};
+    for(const [k, name] of STAGE_NAV){
+      const href = k === "dash" ? "#/dash" : `#/d/${encodeURIComponent(d.id)}/${k}`;
+      const on = k === "dash" ? r.view === "dash" : r.view === "doc" && r.id === d.id && r.stage === k;
+      h += `<a href="${href}" class="${on?"on":""}"><span class="nav-no">${name[0]}</span>
+        <span class="nav-t">${esc(name.slice(2))}<em>${esc(sub[k])}</em>${k==="result" && d.grade ? `<span class="row" style="margin-top:3px">${gchip(d.grade)}</span>` : ""}</span></a>`;
+    }
+  } else h += `<div class="nav-sec" style="letter-spacing:0">아직 글이 없습니다. 위의 「새 글 넣기」로 넣으세요.</div>`;
+  if(!(document.activeElement && document.activeElement.tagName === "SELECT" && $("nav").contains(document.activeElement))) $("nav").innerHTML = h;
   const j = APP.job;
   if(document.activeElement && document.activeElement.tagName === "SELECT" && $("foot").contains(document.activeElement)) return;  // 엔진을 고르는 중엔 다시 그리지 않는다
-  $("foot").innerHTML =engineFoot() + acctFoot("codex") + acctFoot("claude") + (j.name ? `<div>${j.running ? "⏳" : (j.error ? "⚠" : "✓")} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""}</div><div class="bar"><i style="width:${progress(j)}%"></i></div>` : "")
+  $("foot").innerHTML = bookFoot() + engineFoot() + acctFoot("codex") + acctFoot("claude") + (j.name ? `<div>${j.running ? "⏳" : (j.error ? "⚠" : "✓")} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""}</div><div class="bar"><i style="width:${progress(j)}%"></i></div>` : "")
     + `<div title="${esc(APP.workspace)}">워크스페이스: ${esc(APP.workspace.split(/[\\/]/).slice(-2).join("/"))}</div>`;
   if(wasRunning && !j.running) toast(j.error ? ({auth:"⚠ Codex 로그인 만료", claude_auth:"⚠ Claude 로그인 만료", limit:"⚠ 사용 한도", cancel:"멈췄습니다"}[j.error_kind] || "⚠ "+j.name+" 중단") + " — 화면의 안내를 확인하세요" : j.name+" 끝", 6000);
   wasRunning = j.running;
@@ -246,14 +264,32 @@ function marked(text, items){
 const adoptOf = p => { const d = DEC[p.i]; return d && "adopt" in d ? d.adopt : p.adopt_default };
 const textOf = p => (DEC[p.i] && DEC[p.i].text) || p.text;
 
+/* 위쪽 절 탭 — 단계 화면(②③④)에서 고른 절만 보여 준다 */
+function partTabs(){
+  if(DS.parts.length < 2) return "";
+  const b = (APP.docs.find(x=>x.id===DS.doc.id) || {}).parts || [];
+  const mark = k => { const pt = b.find(x=>x.k===k); return pt && !pt.todo.length ? " ✓" : "" };
+  return `<div class="seg" style="flex-wrap:wrap;margin:0 0 10px">${[["all","전체"], ...DS.parts.map(pt=>[String(pt.k), pt.title.replace(/^(제?\d+\s*[절장부])\s.*$/, "$1").slice(0,14)])]
+    .map(([k,t])=>`<button class="${PART===k?"on":""}" onclick="PART='${k}';EF.show=200;rendered=null;renderDoc()" title="${esc(k==="all"?"책 전체":(DS.parts.find(p=>String(p.k)===k)||{}).title||"")}">${esc(t)}${k==="all"?"":mark(+k)}</button>`).join("")}</div>`;
+}
+const partRange = () => { const pt = PART === "all" ? null : DS.parts.find(x => String(x.k) === PART); return pt ? [pt.start, pt.end] : [1, DS.paras.length] };
+const inPart = i => { const [a, b] = partRange(); return a <= i && i <= b };
+
 function renderDoc(){
-  const key = DS.doc.id + "|" + (DS.rewrite ? "rw" : DS.detect ? "det" : "new") + "|" + APP.job.running;
+  const stage = route().stage;
+  const key = [DS.doc.id, stage, PART, DS.rewrite ? "rw" : DS.detect ? "det" : "new", APP.job.running].join("|");
   if(rendered === key){ updateJobBox(); return }
   rendered = key;
   const d = DS.doc, j = APP.job, busy = j.running, t = d.target || {};
-  $("view").innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><h1>${esc(d.id)} · ${esc(d.title)}</h1><div class="sub">${esc(d.source||"")} · 문단 ${DS.paras.length}개 · 공백 포함 ${DS.paras.join("\n\n").length.toLocaleString()}자 · ${esc(d.created||"")}</div></div>
-      <div class="row"><button onclick="openDir('')">폴더 열기</button><button onclick="archiveDoc()" ${busy?"disabled":""} title="backup 폴더로 옮깁니다 (지우지 않음)">보관</button></div></div>
+  const head = `<div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><h1>${esc(STAGE_NAV.find(s=>s[0]===stage)[1])} <span class="mute" style="font-weight:400;font-size:15px">· ${esc(d.id)} ${esc(d.title)}</span></h1>
+        <div class="sub">${esc(d.source||"")} · 문단 ${DS.paras.length}개 · 공백 포함 ${DS.paras.join("\n\n").length.toLocaleString()}자 · ${esc(d.created||"")}</div></div>
+      <div class="row"><button onclick="openDir('')">폴더 열기</button><button onclick="archiveDoc()" ${busy?"disabled":""} title="backup 폴더로 옮깁니다 (지우지 않음)">보관</button></div></div>`;
+  if(stage !== "setup"){
+    $("view").innerHTML = head + partTabs() + `<div id="job"></div><div id="result"></div>`;
+    updateJobBox(); renderResult(); return;
+  }
+  $("view").innerHTML = head + `
     <div class="card"><h2><span class="n">1</span>글 설정 <span class="mute" style="font-weight:400">— 진단·윤문 전에 확인하세요</span></h2>
       <div class="grid2">
         <span>제목</span><input type="text" id="m_title" value="${esc(d.title)}">
@@ -279,9 +315,8 @@ function renderDoc(){
       ${bigWarn(calls(docChars(), ["detect","rewrite"]))}
       <div id="job"></div>
     </div>
-    <div id="result"></div>`;
+    <div class="note">긴 원고는 <a href="#/dash">대시보드</a>에서 절을 골라 단계별로 돌리는 게 좋습니다. 결과는 왼쪽 ② 진단 · ③ 감사·등급 · ④ 정오표에서 절별로 봅니다.</div>`;
   updateJobBox();
-  renderResult();
 }
 
 function renderSummary(){
@@ -307,57 +342,87 @@ function renderSummary(){
   return h;
 }
 
+let RV = "audit";  // ③ 결과 보기 안의 보기: audit(감사 · 남은 흔적) · detect(진단 · 찾은 흔적)
 function renderResult(){
   const el = $("result"); if(!el) return;
-  if(!DS.detect){ el.innerHTML = `<div class="card empty">아직 진단 전입니다. 위의 [① AI 흔적 진단만] 또는 [② 윤문하기]를 누르세요.</div>`; return }
+  const stage = route().stage;
+  if(!DS.detect){ el.innerHTML = `<div class="card empty">아직 진단 전입니다. 왼쪽 ① 원고 · 설정에서 실행하거나, <a href="#/dash">대시보드</a>에서 절을 골라 「1 진단」을 누르세요.</div>`; return }
   const det = DS.detect, rw = DS.rewrite;
-  const items = det.items.filter(x => SEV==="all" || x.severity===SEV);
-  const byPara = {}; for(const x of det.items) (byPara[x.para] = byPara[x.para]||[]).push(x);
-  const counts = {}; for(const x of det.items) counts[x.code] = (counts[x.code]||0)+1;
+  const where = i => (DS.pages[i-1] ? `p.${DS.pages[i-1]} · ` : "") + `문단 ${i}`;
+  const span = c => [c.ids[0], c.ids[c.ids.length-1]];
+  const inRange = c => { const [a, b] = span(c), [lo, hi] = partRange(); return a <= hi && b >= lo };
   // 정오표 방식(rw.edits)에서 예전 형식(fmt 없음) 구간 기록은 실패가 아니라 '아직 안 함'
   const old = c => rw && rw.edits && !c.fmt;
-  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed && !old(c)).length, pend = (rw ? rw.notes : det.chunks).filter(c=>c.pending || old(c)).length;
-  let h = `<div class="card"><h2><span class="n">3</span>결과 ${rw ? "· 등급" : "· 진단"}</h2><div id="sum">${renderSummary()}</div>
-    ${fails ? `<div class="alert"><b>⚠ ${fails}개 구간이 실패해 원문 그대로 두었습니다.</b> 같은 버튼을 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}
-    ${pend ? `<div class="note">아직 ${rw ? "윤문" : "진단"}하지 않은 구간이 ${pend}개 있습니다 (대시보드에서 절을 골라 돌린 글). 등급은 지금까지 한 것 기준입니다. 나머지는 <a href="#/dash">대시보드</a>에서 절을 골라 이어서 하세요.</div>` : ""}</div>`;
-  if(rw && rw.edits) h += editsCard();
-  else h += `<div class="card"><h2><span class="n">4</span>${rw ? "문단 대조 · 고를 것" : "원문 · AI 흔적 표시"}
-      <span class="mute" style="font-weight:400">${rw ? "— 체크한 문단만 윤문본에 들어갑니다. 50% 넘게 바뀌었거나 숫자·인용이 빠진 문단은 기본으로 원문 유지" : ""}</span></h2>
-    ${rw ? `<div class="row" style="margin-bottom:6px"><button class="iconbtn" onclick="setAll(true)">모두 채택</button><button class="iconbtn" onclick="setAll(false)">모두 원문 유지</button><button class="iconbtn" onclick="setAll(null)">기본값으로</button>
-      <span class="mute"><ins>초록</ins> 새로 들어간 글자 · <del>빨강</del> 빠진 글자</span></div>` : ""}
-    <div id="paras">${(rw ? rw.paras : DS.paras.map((t,k)=>({i:k+1, orig:t}))).map(p => paraHtml(p, byPara[p.i]||[])).join("")}</div>
-    ${rw ? `<div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc()">반영 → 윤문본 만들기 (docx · txt · 진단표)</button>
-      <button onclick="secondPass()" title="체크한 대로 만든 윤문본을 새 글로 넣어 한 번 더 진단·윤문합니다 (등급 C일 때)">2차 윤문 (윤문본을 새 글로)</button></div>` :
-      `<div class="row" style="margin-top:12px"><button onclick="exportDoc()">진단표만 내려받기 (xlsx)</button></div>`}
-    ${filesHtml()}
-  </div>`;
-  h += `<div class="card"><h2><span class="n">5</span>찾은 AI 흔적 ${det.items.length}건 (원문 기준)
-      <span class="seg">${["all","S1","S2","S3"].map(s=>`<button class="${SEV===s?"on":""}" onclick="SEV='${s}';renderResult()">${s==="all"?"전체":s}</button>`).join("")}</span></h2>
-    <div class="row" style="margin-bottom:8px">${Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<span class="tag plain" title="${esc((DS.codes[c]||{}).fix||"")}">${esc(c)} ${esc((DS.codes[c]||{}).name||"")} ×${n}</span>`).join("")}</div>
-    <table><thead><tr><th>문단</th><th>분류</th><th>심각도</th><th>원문 구절</th><th>이유</th></tr></thead><tbody>
-    ${items.map(x=>`<tr><td><a href="#" onclick="jump(${x.para});return false">P${x.para}</a></td><td title="${esc((DS.codes[x.code]||{}).name||"")}">${esc(x.code)}<div class="mute" style="font-size:11px">${esc(DS.groups[x.code[0]]||"")}</div></td>
-      <td><span class="sev ${x.severity}">${x.severity}</span></td><td>${esc(x.old_text)}</td><td>${esc(x.reason)}${x.source==="rule"?' <span class="tag plain">규칙</span>':""}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">없습니다.</td></tr>`}
-    </tbody></table></div>`;
+  const RVd = RV === "detect" || !rw;
+  const recs = (RVd ? det.chunks : rw.notes).filter(inRange);
+  const fails = recs.filter(c=>c.failed && !old(c)).length, pend = recs.filter(c=>c.pending || old(c)).length;
+  const alerts = `${fails ? `<div class="alert"><b>⚠ 이 범위에서 ${fails}개 구간이 실패했습니다.</b> 같은 단계를 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}
+    ${pend ? `<div class="note">이 범위에 아직 ${RVd ? "진단" : "윤문"}하지 않은 구간이 ${pend}개 있습니다. <a href="#/dash">대시보드</a>에서 절을 골라 이어서 하세요.</div>` : ""}`;
+  let h = "";
+  if(stage === "result"){
+    h += `<div class="card"><h2>결과 · 등급 <span class="mute" style="font-weight:400">— 책 전체 기준 (절을 다 끝내야 제 등급이 나옵니다)</span></h2><div id="sum">${renderSummary()}</div></div>
+      <div class="seg" style="margin:0 0 10px">${[["audit","감사 · 남은 흔적"],["detect","진단 · 찾은 흔적"]].map(([k,t])=>`<button class="${RV===k?"on":""}" onclick="RV='${k}';EF.show=200;renderResult()">${t}</button>`).join("")}</div>`;
+  }
+  if(stage === "result" && RVd){
+    const all = det.items.filter(x => inPart(x.para)), items = all.filter(x => SEV==="all" || x.severity===SEV);
+    const counts = {}; for(const x of all) counts[x.code] = (counts[x.code]||0)+1;
+    const ch = det.chunks.filter(inRange);
+    h += alerts + `<div class="card"><h2>찾은 AI 흔적 ${all.length}건 <span class="mute" style="font-weight:400">(원문 기준${PART==="all"?" · 책 전체":""})</span>
+        <span class="seg">${["all","S1","S2","S3"].map(s=>`<button class="${SEV===s?"on":""}" onclick="SEV='${s}';renderResult()">${s==="all"?"전체":s}</button>`).join("")}</span></h2>
+      <div class="row" style="margin-bottom:8px">${Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`<span class="tag plain" title="${esc((DS.codes[c]||{}).fix||"")}">${esc(c)} ${esc((DS.codes[c]||{}).name||"")} ×${n}</span>`).join("")}</div>
+      <table><thead><tr><th>쪽 · 문단</th><th>분류</th><th>심각도</th><th>원문 구절</th><th>이유</th></tr></thead><tbody>
+      ${items.slice(0, EF.show).map(x=>`<tr><td style="white-space:nowrap">${where(x.para)}</td><td title="${esc((DS.codes[x.code]||{}).name||"")}">${esc(x.code)}<div class="mute" style="font-size:11px">${esc(DS.groups[x.code[0]]||"")}</div></td>
+        <td><span class="sev ${x.severity}">${x.severity}</span></td><td>${esc(x.old_text)}</td><td>${esc(x.reason)}${x.source==="rule"?' <span class="tag plain">규칙</span>':""}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">없습니다.</td></tr>`}
+      </tbody></table>
+      ${items.length > EF.show ? `<div class="row" style="margin-top:8px"><button onclick="EF.show+=200;renderResult()">더 보기 (${items.length - EF.show}건 남음)</button></div>` : ""}</div>
+    <div class="card"><h2>구간별 진단 ${ch.length}구간</h2><table><thead><tr><th>범위</th><th>트리아지</th><th>요약</th></tr></thead><tbody>
+      ${ch.map(c=>`<tr><td style="white-space:nowrap">${where(span(c)[0])} – ${span(c)[1]}</td><td>${c.failed ? '<span class="tag bad">실패</span>' : c.pending ? '<span class="tag plain">아직</span>' : esc(c.triage)}</td><td>${esc(c.summary)}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  if(stage === "result" && !RVd){
+    h += alerts;
+    if(rw){
+      const rows = rw.paras.filter(p => inPart(p.i)), left = rows.flatMap(p => p.residual||[]);
+      const notes = rw.notes.filter(inRange);
+      const st = n => n.failed && !old(n) ? '<span class="tag bad">실패</span>' : n.pending || old(n) ? '<span class="tag plain">아직</span>'
+        : (n.audited ?? !!n.audit) ? '<span class="tag">✓ 감사</span>' : '<span class="tag warn">감사 전</span>';
+      h += `<div class="card"><h2>구간 기록 ${notes.length}구간</h2><table><thead><tr><th>범위</th><th>상태</th><th>윤문</th><th>감사</th></tr></thead><tbody>
+        ${notes.map(n=>`<tr><td style="white-space:nowrap">${where(n.ids[0])} – ${n.ids[1]}</td><td>${st(n)}</td><td>${esc(n.note)}</td><td>${esc(n.audit||"")}</td></tr>`).join("")}</tbody></table></div>
+        <div class="card"><h2>남은 흔적 ${left.length}건 <span class="mute" style="font-weight:400">— 수정 후보를 모두 반영했다고 보고 다시 찾은 것</span></h2>
+        <table><thead><tr><th>쪽 · 문단</th><th>분류</th><th>심각도</th><th>구절</th><th>이유</th></tr></thead><tbody>
+        ${left.slice(0, 300).map(x=>`<tr><td style="white-space:nowrap">${where(x.para)}</td><td>${esc(x.code)}</td><td><span class="sev ${x.severity}">${x.severity}</span></td><td>${esc(x.old_text)}</td><td>${esc(x.reason)}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">없습니다.</td></tr>`}
+        </tbody></table></div>`;
+    } else h += `<div class="card empty">아직 윤문 전입니다. <a href="#/dash">대시보드</a>에서 「2 윤문」 · 「3 감사」를 누르세요.</div>`;
+  }
+  if(stage === "errata"){
+    if(rw && rw.edits) h += alerts + editsCard();
+    else if(rw){
+      const byPara = {}; for(const x of det.items) (byPara[x.para] = byPara[x.para]||[]).push(x);
+      h += `<div class="note">이 글은 예전 방식(문단을 통째로 다시 쓰기)으로 윤문한 결과입니다. <a href="#/dash">대시보드</a>에서 절을 골라 「2 윤문」을 다시 누르면 정오표 방식(수정 후보 · 확률)으로 바뀝니다.</div>
+      <div class="card"><h2>문단 대조 · 고를 것</h2>
+        <div class="row" style="margin-bottom:6px"><button class="iconbtn" onclick="setAll(true)">모두 채택</button><button class="iconbtn" onclick="setAll(false)">모두 원문 유지</button><button class="iconbtn" onclick="setAll(null)">기본값으로</button></div>
+        <div id="paras">${rw.paras.filter(p=>inPart(p.i)).slice(0, EF.show).map(p => paraHtml(p, byPara[p.i]||[])).join("")}</div>
+        <div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc()">반영 → 윤문본 만들기</button></div>${filesHtml()}</div>`;
+    } else h += `<div class="card empty">아직 윤문 전입니다. <a href="#/dash">대시보드</a>에서 절을 골라 「2 윤문」을 누르면 수정 후보가 여기에 나옵니다.
+      <div class="row" style="justify-content:center;margin-top:10px"><button onclick="exportDoc()">진단표만 내려받기 (xlsx)</button></div>${filesHtml()}</div>`;
+  }
   el.innerHTML = h;
 }
 
 /* ---------- 수정 항목(정오표) 검토 — 확률 · 체크 · 수정 문구 · 메모 ---------- */
-let EF = {min:0, part:"all", show:200};
+let EF = {min:0, show:200};
 const ekey = e => "e:" + e.id;
 const eOn = e => { const d = DEC[ekey(e)]; return d && "apply" in d ? d.apply : e.on_default };
 const eNew = e => { const d = DEC[ekey(e)]; return d && d.new_text != null ? d.new_text : e.new_text };
 const partOf = i => (DS.parts.find(pt => pt.start <= i && i <= pt.end) || {}).title || "";
 function editsShown(){
-  const pt = EF.part === "all" ? null : DS.parts.find(x => String(x.k) === EF.part);
-  return DS.rewrite.edits.filter(e => e.p >= EF.min && (!pt || (pt.start <= e.para && e.para <= pt.end)));
+  return DS.rewrite.edits.filter(e => e.p >= EF.min && inPart(e.para));
 }
 function editsCard(){
   const all = DS.rewrite.edits, shown = editsShown(), on = all.filter(eOn).length;
   const opt = (v, t, cur) => `<option value="${v}" ${String(cur)===String(v)?"selected":""}>${esc(t)}</option>`;
-  return `<div class="card"><h2><span class="n">4</span>수정 후보 · 체크 <span class="mute" style="font-weight:400">— 체크한 것만 정오표에 들어갑니다. 수정확률 60% 이상은 처음부터 체크되어 있습니다.</span></h2>
+  return `<div class="card"><h2>수정 후보 · 체크 <span class="mute" style="font-weight:400">— 체크한 것만 정오표에 들어갑니다. 수정확률 60% 이상은 처음부터 체크되어 있습니다. 반영 파일은 늘 책 전체 한 번에 나옵니다.</span></h2>
     <div class="row" style="margin-bottom:8px">
       <select onchange="EF.min=+this.value;EF.show=200;renderResult()">${[[0,"확률 전체"],[.4,"40% 이상"],[.6,"60% 이상"],[.8,"80% 이상"]].map(([v,t])=>opt(v,t,EF.min)).join("")}</select>
-      ${DS.parts.length > 1 ? `<select onchange="EF.part=this.value;EF.show=200;renderResult()">${opt("all","절 전체",EF.part)}${DS.parts.map(pt=>opt(pt.k, pt.title.slice(0,24), EF.part)).join("")}</select>` : ""}
       <button class="iconbtn" onclick="setEdits(true)">보이는 것 모두 체크</button><button class="iconbtn" onclick="setEdits(false)">보이는 것 모두 해제</button><button class="iconbtn" onclick="setEdits(null)">기본값으로</button>
       <span class="mute">보이는 ${shown.length}건 · 전체 ${all.length}건 중 체크 <b>${on}</b>건</span></div>
     <div id="paras">${shown.slice(0, EF.show).map(editHtml).join("") || `<div class="empty">이 조건에 맞는 수정 후보가 없습니다.</div>`}</div>
@@ -563,16 +628,17 @@ function acctLine(){
     return `<span><span style="color:${dot}">●</span> ${A.name}${c.email ? " · "+esc(c.email) : ""}${c.plan ? " · <b>"+esc(c.plan)+"</b>" : ""}${c.logged_in === false ? " · 로그인 필요" : ""}</span>` };
   return `<div class="row mute" style="gap:16px;margin:-6px 0 10px;font-size:12.5px">${one("codex")}${one("claude")}<span>엔진: <b>${esc(APP.engines[APP.settings.engine])}</b></span></div>`;
 }
+const BOOKS = () => APP.docs.filter(d => d.id === curId());  // 대시보드는 작업할 책(좌하단) 하나만
 function renderDash(){
   const j = APP.job, run = j.running;
-  const keys = new Set(APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))));
+  const keys = new Set(BOOKS().flatMap(d => partsOf(d).map(pt => pkey(d, pt))));
   for(const k of [...PICK]) if(!keys.has(k)) PICK.delete(k);
-  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.name, j.error, APP.settings, APP.codex, APP.claude, [...PICK], [...FOLD], ALERT_OFF]);
+  const key = "dash|" + JSON.stringify([BOOKS(), APP.batch, run, j.name, j.error, APP.settings, APP.codex, APP.claude, [...PICK], [...FOLD], ALERT_OFF]);
   if(rendered === key){ dashLog(); return }
   rendered = key;
-  const docs = APP.docs.filter(d => pickedParts(d).length);
+  const docs = BOOKS().filter(d => pickedParts(d).length);
   const sel = docs.flatMap(d => pickedParts(d));
-  const all = APP.docs.flatMap(d => partsOf(d));
+  const all = BOOKS().flatMap(d => partsOf(d));
   const doneN = st => all.filter(pt => !(pt.left||{})[st]).length;
   const s = APP.settings, dis = run ? "disabled" : "";
   const kpi = (t, v, sub) => `<div class="kpi"><span class="mute">${t}</span><b>${v}</b>${sub ? `<span class="mute" style="font-size:11.5px">${sub}</span>` : ""}</div>`;
@@ -580,39 +646,30 @@ function renderDash(){
     const m = steps.filter(st=>st!=="export").reduce((a,st)=>a+estMin(leftSegs(sel, st), st), 0);
     return `<button class="${cls}" onclick="runSteps(${esc(JSON.stringify(steps))})" ${run || !sel.length ? "disabled" : ""}
       title="${steps.includes("export") && steps.length === 1 ? "정오표(엑셀 · 검토 PDF/HTML · 게시판)를 책 전체 한 번에 만듭니다 (호출 없음)" : `고른 부분: 호출 약 ${n}회 · Codex 약 ${m}분`}">${label}</button>` };
-  const docRow = d => {
-    const ps = partsOf(d), n = pickedParts(d).length, multi = ps.length > 1, open = multi && !FOLD.has(d.id);
-    const st = (APP.batch.cur===d.id && run) ? "cur" : "";
-    const exp = d.exported ? `<span class="mute" style="font-size:12px">반영 ${esc(d.exported)}</span>` : "";
-    let h = `<tr class="${st}"><td><input type="checkbox" ${n===ps.length?"checked":""} data-ind="${n && n<ps.length?1:""}" ${dis} onchange="pickDoc('${esc(d.id)}',this.checked)"></td>
-      <td><b>${esc(d.id)}</b></td><td>${multi ? `<button class="iconbtn" onclick="fold('${esc(d.id)}')" title="절 ${open?"접기":"펴기"}">${open?"▾":"▸"} ${ps.length}부분</button> ` : ""}<a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a>
-        <div class="mute" style="font-size:12px">${esc(d.genre||"")}${d.id in APP.batch.done && APP.batch.done[d.id] !== "ok" ? ` · <span class="${DONE[APP.batch.done[d.id]][0]}">${DONE[APP.batch.done[d.id]][1]}</span>` : ""}</div></td>
-      <td class="num">${(d.chars||0).toLocaleString()}</td>
-      ${STAGES.map(([k]) => `<td>${stageCell(d, ps, k)}</td>`).join("")}
-      <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b> ` : ""}${exp || (d.grade ? "" : '<span class="mute">-</span>')}</td>
-      <td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td></tr>`;
-    if(open) h += ps.map(pt => `<tr class="sub"><td style="padding-left:22px"><input type="checkbox" ${PICK.has(pkey(d,pt))?"checked":""} ${dis} onchange="pick('${esc(pkey(d,pt))}',this.checked)"></td>
-      <td class="mute">${pt.k}</td><td style="padding-left:22px">${esc(pt.title)} <span class="mute" style="font-size:12px">· 문단 ${pt.start}–${pt.end}</span></td>
-      <td class="num">${pt.chars.toLocaleString()}</td>
+  const docRow = d => {  // 고른 책의 절만 행으로 (책 이름 행은 두지 않는다)
+    const ps = partsOf(d);
+    return ps.map(pt => `<tr class="${APP.batch.cur===d.id && run && inBatch(d, pt) && pt.todo.length ? "cur" : ""}">
+      <td><input type="checkbox" ${PICK.has(pkey(d,pt))?"checked":""} ${dis} onchange="pick('${esc(pkey(d,pt))}',this.checked)"></td>
+      <td class="mute">${pt.k}</td><td>${esc(pt.title)} <span class="mute" style="font-size:12px">· ${pt.end ? `문단 ${pt.start}–${pt.end}` : ""}</span></td>
+      <td class="num">${(pt.chars||0).toLocaleString()}</td>
       ${STAGES.map(([k]) => `<td>${stageCell(d, [pt], k)}</td>`).join("")}
-      <td>${pt.exported ? `<span class="tag">✓ ${esc(pt.exported)}</span>` : '<span class="mute">-</span>'}</td><td></td></tr>`).join("");
-    return h;
+      <td>${pt.todo && !pt.todo.length ? `<a href="#/d/${encodeURIComponent(d.id)}/errata" onclick="PART='${pt.k}';KEEP=1"><span class="tag">체크하러 가기 →</span></a>` : '<span class="mute">-</span>'}</td></tr>`).join("");
   };
-  $("view").innerHTML = `<h1>대시보드</h1>
+  $("view").innerHTML = `<h1>② 만들기 <span class="mute" style="font-weight:400;font-size:15px">· ${esc(BOOKS()[0] ? BOOKS()[0].id+" "+BOOKS()[0].title : "")}</span></h1>
     <div class="sub">글이나 절을 체크하고 단계 버튼을 누르면 고른 부분에만 그 단계를 합니다. 단계를 나눠 두었으니 <b>Codex 한도를 다른 일과 나눠 쓰며 시간대를 갈라 돌릴 수</b> 있습니다.
       한 단계 버튼은 그 단계만 하고(앞 단계가 안 된 곳은 건너뜀), ▶ 버튼은 앞 단계부터 차례로 합니다. 이미 된 곳은 건너뛰고, 실패한 구간만 다시 합니다.</div>
     ${acctLine()}
-    <div class="kpis">${kpi("글", APP.docs.length+"편", all.length > APP.docs.length ? all.length+"부분" : "")}${kpi("1 진단", doneN("detect")+" / "+all.length)}${kpi("2 윤문", doneN("rewrite")+" / "+all.length)}${kpi("3 감사", doneN("audit")+" / "+all.length)}${kpi("4 반영", all.filter(pt=>pt.exported).length + APP.docs.filter(d=>d.exported && partsOf(d).length===1).length + " / "+all.length)}</div>
+    <div class="kpis">${kpi("절", all.length+"부분", BOOKS()[0] ? esc(BOOKS()[0].title.slice(0,20)) : "")}${kpi("1 진단", doneN("detect")+" / "+all.length)}${kpi("2 윤문", doneN("rewrite")+" / "+all.length)}${kpi("3 감사", doneN("audit")+" / "+all.length)}${kpi("4 정오표", BOOKS()[0] && BOOKS()[0].exported ? "반영" : "-", BOOKS()[0] && BOOKS()[0].exported ? esc(BOOKS()[0].exported) : "아직 안 만듦")}</div>
     <div class="card">
       <div class="row" style="gap:6px">
         <b>고른 편에</b> <span class="mute">(${sel.length ? `${docs.length}편 ${sel.length}부분` : "아직 안 골랐어요"})</span>
-        ${btn(["detect"], "1 진단")}${btn(["rewrite"], "2 윤문")}${btn(["audit"], "3 감사")}${btn(["export"], "4 반영")}
+        ${btn(["detect"], "1 진단")}${btn(["rewrite"], "2 윤문")}${btn(["audit"], "3 감사")}${btn(["export"], "4 정오표")}
         <span class="mute">|</span>${btn(["detect","rewrite","audit"], "▶ 1→3", "primary")}${btn(["detect","rewrite","audit","export"], "▶ 1→4", "primary")}
         ${run && isBatch(j) ? `<button onclick="stopJob()">■ 멈춤</button>` : ""}
       </div>
-      ${APP.docs.length ? `<table class="dash" style="margin-top:10px"><thead><tr><th><input type="checkbox" ${keys.size && PICK.size===keys.size?"checked":""} onchange="pickAll(this.checked)" ${dis} title="모두"></th>
-        <th>번호</th><th>제목</th><th class="num">글자수</th><th>1 진단</th><th>2 윤문</th><th>3 감사</th><th>4 반영 · 등급</th><th>흔적</th></tr></thead><tbody>
-        ${APP.docs.map(docRow).join("")}</tbody></table>`
+      ${BOOKS().length ? `<table class="dash" style="margin-top:10px"><thead><tr><th><input type="checkbox" ${keys.size && PICK.size===keys.size?"checked":""} onchange="pickAll(this.checked)" ${dis} title="모두"></th>
+        <th>번호</th><th>절</th><th class="num">글자수</th><th>1 진단</th><th>2 윤문</th><th>3 감사</th><th>4 정오표</th></tr></thead><tbody>
+        ${BOOKS().map(docRow).join("")}</tbody></table>`
         : `<div class="empty">아직 글이 없습니다. <a href="#/new">새 글 넣기</a>에서 넣으세요.</div>`}
       <div class="mute" style="margin-top:8px">칸의 「N구간」은 남은 Codex 호출 수입니다(마우스를 올리면 어림 시간). 「4 반영」은 정오표(엑셀 · 회의용 검토 PDF · 체크박스 검토 HTML · 게시판 HTML)를 책 전체 한 번에, 절 · 쪽 순으로 만듭니다.
         체크는 글 화면에서 고른 대로, 손대지 않았으면 수정확률 60% 이상이 들어갑니다.</div>
@@ -638,13 +695,13 @@ function dashLog(){
   const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
 }
 function pick(k, on){ on ? PICK.add(k) : PICK.delete(k); savePick(); renderDash() }
-function pickDoc(id, on){ const d = APP.docs.find(x=>x.id===id); for(const pt of partsOf(d)) on ? PICK.add(pkey(d,pt)) : PICK.delete(pkey(d,pt)); savePick(); renderDash() }
-function pickAll(on){ PICK = new Set(on ? APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))) : []); savePick(); renderDash() }
+function pickDoc(id, on){ const d = BOOKS().find(x=>x.id===id); for(const pt of partsOf(d)) on ? PICK.add(pkey(d,pt)) : PICK.delete(pkey(d,pt)); savePick(); renderDash() }
+function pickAll(on){ PICK = new Set(on ? BOOKS().flatMap(d => partsOf(d).map(pt => pkey(d, pt))) : []); savePick(); renderDash() }
 function fold(id){ FOLD.has(id) ? FOLD.delete(id) : FOLD.add(id); rendered = null; renderDash() }
 async function runSteps(steps){
-  const items = APP.docs.filter(d => pickedParts(d).length).map(d => { const ps = partsOf(d), ks = pickedParts(d).map(pt=>pt.k);
+  const items = BOOKS().filter(d => pickedParts(d).length).map(d => { const ps = partsOf(d), ks = pickedParts(d).map(pt=>pt.k);
     return {id:d.id, parts: ks.length === ps.length ? null : ks} });
-  const sel = APP.docs.flatMap(d => pickedParts(d));
+  const sel = BOOKS().flatMap(d => pickedParts(d));
   const names = {detect:"진단", rewrite:"윤문", audit:"감사", export:"반영"};
   const n = steps.filter(st=>st!=="export").reduce((a,st)=>a+leftSegs(sel, st), 0);
   const m = steps.filter(st=>st!=="export").reduce((a,st)=>a+estMin(leftSegs(sel, st), st), 0);
@@ -669,6 +726,20 @@ function updateJobBox(){
   el.innerHTML = jobAlert(j) + (j.running ? `<div class="bar"><i style="width:${progress(j)}%"></i></div>${log}`
     : `<details style="margin:6px 0"><summary class="mute">${j.error ? "⚠" : "✓"} ${esc(j.name)} ${j.error ? "중단" : "끝"} (${esc(j.ended||"")}) — 로그 보기</summary>${log}</details>`);
   const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
+}
+
+/* ---------- 작업할 책 (좌하단) — 나중에 워크스페이스처럼 쌓을 자리 ---------- */
+function bookFoot(){
+  if(!APP.docs.length) return "";
+  const id = curId(), r = route();
+  return `<div style="color:var(--rail-mute)">작업할 책</div><select class="engsel" onchange="pickBook(this.value)" title="작업할 책">
+    ${[...APP.docs].reverse().map(x=>`<option value="${esc(x.id)}" ${x.id===id?"selected":""}>${esc(x.id)} · ${esc(x.title.slice(0,24))}</option>`).join("")}</select>`;
+}
+function pickBook(id){
+  try{ localStorage.setItem("khum.doc", id) }catch(e){}
+  const r = route();
+  location.hash = r.view === "doc" ? "#/d/"+encodeURIComponent(id)+"/"+r.stage : r.view === "dash" ? "#/dash" : "#/d/"+encodeURIComponent(id)+"/setup";
+  if(r.view === "dash"){ rendered = null; refresh() }
 }
 
 /* ---------- 엔진 · 계정 (좌하단): Codex(ChatGPT) · Claude ---------- */
