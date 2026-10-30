@@ -2,6 +2,7 @@
   <제목>_윤문본.docx · .txt   채택한 문단은 윤문, 나머지는 원문 그대로
   <제목>_진단표.xlsx          [요약] 등급 · 변경률 · 글자수 · 자가검증 / [문단 대조] / [AI 흔적]
 진단만 했으면 진단표만 만든다.
+part 를 주면 그 절만: <제목>_<절>_윤문본.docx … (1절을 끝내고 디자인실에 먼저 넘길 때)
 """
 from datetime import datetime
 
@@ -9,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from . import audit, config, taxonomy
+from . import audit, config, humanize, taxonomy
 
 HEAD_FILL = PatternFill("solid", fgColor="E9EEF6")
 THIN = Side(style="thin", color="C9D1DD")
@@ -42,7 +43,7 @@ def _items_rows(items):
 ITEM_COLS = [("문단", 6), ("분류", 7), ("패턴", 30), ("심각도", 7), ("원문 구절", 40), ("이유", 50), ("찾은 곳", 7)]
 
 
-def run(did, decisions=None):
+def run(did, decisions=None, part=None):
     d = config.doc(did)
     paras = config.load(did, "01_원문", "paragraphs.json")
     det = config.load(did, "02_탐지", "detect.json")
@@ -52,9 +53,18 @@ def run(did, decisions=None):
     if decisions is not None:
         config.save(did, "04_검토", "decisions.json", decisions)
     decisions = config.load(did, "04_검토", "decisions.json") or {}
-    s = audit.summary(paras, det, rw, decisions, d.get("target"))
-    out = config.stage(did, "05_반영본")
     name = config.slug(d["title"])
+    target = d.get("target")
+    if part is not None:  # 그 절의 문단만 (목표 글자수는 글 전체 기준이라 절에는 적용하지 않는다)
+        pt = humanize.parts(paras)[part]
+        lo, hi = pt["start"], pt["end"]
+        paras = paras[lo - 1:hi]
+        det = dict(det, items=[x for x in det["items"] if lo <= x["para"] <= hi])
+        rw = rw and dict(rw, paras=[p for p in rw["paras"] if lo <= p["i"] <= hi])
+        name += "_" + config.slug(pt["title"])[:20]
+        target = None
+    s = audit.summary(paras, det, rw, decisions, target)
+    out = config.stage(did, "05_반영본")
     made = []
 
     if rw:
@@ -104,7 +114,10 @@ def run(did, decisions=None):
     _sheet(wb.create_sheet("AI 흔적(원문)"), ITEM_COLS, _items_rows(det["items"]))
     wb.save(out / f"{name}_진단표.xlsx")
     made.append(f"{name}_진단표.xlsx")
-    d["exported"] = datetime.now().strftime("%m-%d %H:%M")
+    if part is None:
+        d["exported"] = datetime.now().strftime("%m-%d %H:%M")
+    else:
+        d.setdefault("exported_parts", {})[str(part)] = datetime.now().strftime("%m-%d %H:%M")
     config.save_doc(d)
     print(f"[반영] {', '.join(made)} → 05_반영본/")
     return {"files": made, "summary": s}

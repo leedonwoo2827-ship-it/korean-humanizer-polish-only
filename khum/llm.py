@@ -20,9 +20,22 @@ class Cancelled(EngineStop):
     kind = "cancel"
 
 
+def claude_ready():
+    """자동 모드에서 Claude로 넘겨도 되나 — CLI가 있고 로그인이 안 된 걸로 확인되지 않았으면."""
+    from . import claude_auth
+    from .claude import claude_bin
+    try:
+        claude_bin()
+    except SystemExit:
+        return False
+    return claude_auth.STATE.get("logged_in") is not False
+
+
 def order():
     e = config.settings()["engine"]
-    return [e] if e in ENGINES else list(ENGINES)
+    if e in ENGINES:
+        return [e]
+    return ["codex", "claude"] if claude_ready() else ["codex"]
 
 
 def label():

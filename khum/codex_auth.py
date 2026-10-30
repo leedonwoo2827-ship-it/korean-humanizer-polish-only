@@ -26,18 +26,28 @@ def _now():
     return datetime.now().strftime("%H:%M:%S")
 
 
-def _email():
-    """~/.codex/auth.json 의 id_token(JWT) 에서 계정 이메일."""
+def _claims():
+    """~/.codex/auth.json 의 id_token(JWT) 내용."""
     try:
         obj = json.loads(AUTH_PATH.read_text(encoding="utf-8"))
         tok = (obj.get("tokens") or {}).get("id_token") or obj.get("id_token") or ""
         if isinstance(tok, dict):  # 버전에 따라 이미 풀어 둔 형태
-            return tok.get("email")
+            return tok
         part = tok.split(".")[1]
         part += "=" * (-len(part) % 4)
-        return json.loads(base64.urlsafe_b64decode(part)).get("email")
+        return json.loads(base64.urlsafe_b64decode(part))
     except Exception:
-        return None
+        return {}
+
+
+def _email():
+    return _claims().get("email")
+
+
+def _plan():
+    """ChatGPT 요금제 (plus · pro · team …)."""
+    c = _claims()
+    return (c.get("https://api.openai.com/auth") or {}).get("chatgpt_plan_type") or c.get("chatgpt_plan_type")
 
 
 def _run(*args, timeout=30):
@@ -69,7 +79,7 @@ def check(deep=True):
         except Exception as e:
             rc, out = 1, str(e)
         logged = rc == 0 and "not logged" not in out.lower()
-        STATE.update(logged_in=logged, email=_email() if logged else None)
+        STATE.update(logged_in=logged, email=_email() if logged else None, plan=_plan() if logged else None)
         if not logged:
             STATE.update(verified=False, message="로그인되어 있지 않습니다. [로그인]을 누르세요.")
             return

@@ -50,7 +50,7 @@ def check(deep=True):
         except Exception:
             st = {}
         logged = bool(st.get("loggedIn")) and st.get("authMethod") != "api_key"
-        STATE.update(logged_in=logged, email=st.get("email") if logged else None)
+        STATE.update(logged_in=logged, email=st.get("email") if logged else None, plan=st.get("subscriptionType") if logged else None)
         if not logged:
             STATE.update(verified=False, message="Claude 계정(claude.ai)으로 로그인되어 있지 않습니다. [로그인]을 누르세요.")
             return

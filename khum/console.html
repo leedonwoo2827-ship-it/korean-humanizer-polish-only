@@ -173,7 +173,7 @@ function progress(j){
   if(!j.name) return 0;
   if(!j.running) return 100;
   // 로그 머리줄 "[탐지] … N구간을 Codex로" / "[윤문] … N구간을 Claude로" 와 구간별 줄 수로 센다
-  if(j.name === "이어서 진행"){ const b = APP.batch; return Math.min(97, 3 + 94*Object.keys(b.done).length/(b.ids.length||1)) }
+  if(isBatch(j)){ const b = APP.batch; return Math.min(97, 3 + 94*Object.keys(b.done).length/(b.ids.length||1)) }
   const total = kind => { const m = j.log.map(l=>l.match(new RegExp("^\\["+kind+"\\] .*?(\\d+)구간을 "))).filter(Boolean).pop(); return m ? +m[1] : 0 };
   const done = kind => j.log.filter(l=>new RegExp("^\\s+\\["+kind+"\\] 구간").test(l)).length;
   const nd = total("탐지"), nr = total("윤문");
@@ -456,76 +456,96 @@ function bigWarn(c){
     단행본은 장(章)별로 나눠 넣으면 하나씩 확인하기도 쉽습니다.</div>`;
 }
 
-/* ---------- 대시보드: 체크한 글·절 이어서 진행 ---------- */
+/* ---------- 대시보드: 고른 글·절에 단계 버튼 (1 진단 · 2 윤문 · 3 감사 · 4 반영) ---------- */
 // PICK = {"01:0", "01:3", …}  글번호:절번호. 짧은 글은 절이 하나(0)라 글 체크 = 그 절 체크
 let PICK = (()=>{ try{ return new Set(JSON.parse(localStorage.getItem("khum.pick")||"[]")) }catch(e){ return new Set() } })();
 const FOLD = new Set();  // 접어 둔 글
 const savePick = () => { try{ localStorage.setItem("khum.pick", JSON.stringify([...PICK])) }catch(e){} };
-const STEP = {detect:"진단", rewrite:"윤문"};
-const DONE = {ok:["ok","끝"], part:["warn","일부 실패"], limit:["warn","한도로 멈춤"], stop:["bad","멈춤"], fail:["bad","실패"]};
+const STAGES = [["detect","1 진단"], ["rewrite","2 윤문"], ["audit","3 감사"]];
+// Codex · 3개 동시 · 6,000자 구간에서 3구간(한 바퀴)에 걸리는 어림 분 — README 표와 같은 셈. 실측 뒤 고칠 것
+const ROUND_MIN = {detect:1, rewrite:1.4, audit:1};
+const DONE = {ok:["ok","끝"], part:["warn","일부 남음"], limit:["warn","한도로 멈춤"], stop:["bad","멈춤"], fail:["bad","실패"]};
+const isBatch = j => !!j.name && !j.uid && APP.batch.ids.length > 0;
 const pkey = (d, pt) => d.id + ":" + pt.k;
-const partsOf = d => d.parts && d.parts.length ? d.parts : [{k:0, title:"전체", chars:d.chars, todo:d.todo}];
+const partsOf = d => d.parts && d.parts.length ? d.parts : [{k:0, title:"전체", start:1, end:0, chars:d.chars||0, todo:d.todo||[], left:{}}];
 const pickedParts = d => partsOf(d).filter(pt => PICK.has(pkey(d, pt)));
 const inBatch = (d, pt) => { const b = APP.batch, ks = b.parts[d.id]; return b.ids.includes(d.id) && (ks == null || ks.includes(pt.k)) };
-function todoTags(todo){ return todo.length ? todo.map(s=>`<span class="tag plain">${STEP[s]} 남음</span>`).join(" ") : `<span class="tag">✓ 윤문 끝</span>` }
-function dashStatus(d){
-  const b = APP.batch, run = APP.job.running && APP.job.name === "이어서 진행";
-  if(run && b.cur === d.id) return b.waiting ? `<span class="tag warn">⏸ 한도 대기 · ${esc(b.waiting)}에 다시</span>` : `<span class="tag warn">⏳ 진행 중</span>`;
-  if(run && b.ids.includes(d.id) && !(d.id in b.done)) return `<span class="tag plain">대기열</span>`;
-  if(d.id in b.done && b.done[d.id] !== "ok"){ const [c, t] = DONE[b.done[d.id]]; return `<span class="tag ${c}">${t}</span>` }
-  return todoTags(d.todo) + (d.failed ? ` <span class="tag bad">실패 ${d.failed}구간</span>` : "");
+const segs = ch => ch ? Math.ceil(ch / APP.chunk) : 0;
+const leftSegs = (pts, st) => pts.reduce((a,pt)=>a+segs((pt.left||{})[st]), 0);
+const estMin = (n, st) => n ? Math.max(1, Math.round(Math.ceil(n/3) * ROUND_MIN[st])) : 0;
+function stageCell(d, pts, st){
+  const n = leftSegs(pts, st), b = APP.batch, run = APP.job.running && isBatch(APP.job);
+  if(run && b.cur === d.id && b.steps.includes(st) && n && pts.some(pt => inBatch(d, pt)))
+    return b.waiting ? `<span class="tag warn" title="${esc(b.waiting)}에 다시">⏸ 한도 대기</span>` : `<span class="tag warn">⏳ ${n}구간</span>`;
+  return n ? `<span class="tag plain" title="약 ${estMin(n, st)}분 (Codex 어림)">${n}구간</span>` : `<span class="tag">✓</span>`;
 }
-function partStatus(d, pt){
-  const b = APP.batch, run = APP.job.running && APP.job.name === "이어서 진행";
-  if(run && inBatch(d, pt) && pt.todo.length) return b.cur === d.id ? (b.waiting ? `<span class="tag warn">⏸ 한도 대기</span>` : `<span class="tag warn">⏳ 진행 중</span>`) : `<span class="tag plain">대기열</span>`;
-  return todoTags(pt.todo);
+function acctLine(){
+  const one = k => { const c = APP[k] || {}, A = ACCT[k];
+    const dot = c.verified ? "var(--ok)" : (c.verified === false || c.logged_in === false) ? "var(--bad)" : "var(--warn)";
+    return `<span><span style="color:${dot}">●</span> ${A.name}${c.email ? " · "+esc(c.email) : ""}${c.plan ? " · <b>"+esc(c.plan)+"</b>" : ""}${c.logged_in === false ? " · 로그인 필요" : ""}</span>` };
+  return `<div class="row mute" style="gap:16px;margin:-6px 0 10px;font-size:12.5px">${one("codex")}${one("claude")}<span>엔진: <b>${esc(APP.engines[APP.settings.engine])}</b></span></div>`;
 }
 function renderDash(){
   const j = APP.job, run = j.running;
   const keys = new Set(APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))));
   for(const k of [...PICK]) if(!keys.has(k)) PICK.delete(k);
-  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.error, APP.settings, [...PICK], [...FOLD], ALERT_OFF]);
+  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.name, j.error, APP.settings, APP.codex, APP.claude, [...PICK], [...FOLD], ALERT_OFF]);
   if(rendered === key){ dashLog(); return }
   rendered = key;
-  const audit = $("d_audit") ? $("d_audit").checked : true;
-  const left = (d, ps) => ps.reduce((a,pt)=>a+(pt.todo.length ? calls(pt.chars, pt.todo, audit) : 0), 0);
   const docs = APP.docs.filter(d => pickedParts(d).length);
-  const nparts = docs.reduce((a,d)=>a+pickedParts(d).length, 0);
-  const total = docs.reduce((a,d)=>a+left(d, pickedParts(d)), 0);
+  const sel = docs.flatMap(d => pickedParts(d));
+  const all = APP.docs.flatMap(d => partsOf(d));
+  const doneN = st => all.filter(pt => !(pt.left||{})[st]).length;
   const s = APP.settings, dis = run ? "disabled" : "";
+  const kpi = (t, v, sub) => `<div class="kpi"><span class="mute">${t}</span><b>${v}</b>${sub ? `<span class="mute" style="font-size:11.5px">${sub}</span>` : ""}</div>`;
+  const btn = (steps, label, cls="") => { const n = steps.filter(st=>st!=="export").reduce((a,st)=>a+leftSegs(sel, st), 0);
+    const m = steps.filter(st=>st!=="export").reduce((a,st)=>a+estMin(leftSegs(sel, st), st), 0);
+    return `<button class="${cls}" onclick="runSteps(${esc(JSON.stringify(steps))})" ${run || !sel.length ? "disabled" : ""}
+      title="${steps.includes("export") && steps.length === 1 ? "고른 절마다 윤문본 · 진단표 파일을 만듭니다 (호출 없음)" : `고른 부분: 호출 약 ${n}회 · Codex 약 ${m}분`}">${label}</button>` };
   const docRow = d => {
     const ps = partsOf(d), n = pickedParts(d).length, multi = ps.length > 1, open = multi && !FOLD.has(d.id);
-    let h = `<tr class="${APP.batch.cur===d.id && run?"cur":""}"><td><input type="checkbox" ${n===ps.length?"checked":""} data-ind="${n && n<ps.length?1:""}" ${dis} onchange="pickDoc('${esc(d.id)}',this.checked)"></td>
-      <td><b>${esc(d.id)}</b></td><td>${multi ? `<button class="iconbtn" onclick="fold('${esc(d.id)}')" title="절 ${open?"접기":"펴기"}">${open?"▾":"▸"} ${ps.length}부분</button> ` : ""}<a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a><div class="mute" style="font-size:12px">${esc(d.genre||"")}</div></td>
-      <td class="num">${(d.chars||0).toLocaleString()}</td><td class="num">${d.todo.length ? left(d, ps) : "-"}</td>
-      <td>${dashStatus(d)}</td><td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td>
-      <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b>` : '<span class="mute">-</span>'}</td></tr>`;
+    const st = (APP.batch.cur===d.id && run) ? "cur" : "";
+    const exp = d.exported ? `<span class="mute" style="font-size:12px">반영 ${esc(d.exported)}</span>` : "";
+    let h = `<tr class="${st}"><td><input type="checkbox" ${n===ps.length?"checked":""} data-ind="${n && n<ps.length?1:""}" ${dis} onchange="pickDoc('${esc(d.id)}',this.checked)"></td>
+      <td><b>${esc(d.id)}</b></td><td>${multi ? `<button class="iconbtn" onclick="fold('${esc(d.id)}')" title="절 ${open?"접기":"펴기"}">${open?"▾":"▸"} ${ps.length}부분</button> ` : ""}<a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a>
+        <div class="mute" style="font-size:12px">${esc(d.genre||"")}${d.id in APP.batch.done && APP.batch.done[d.id] !== "ok" ? ` · <span class="${DONE[APP.batch.done[d.id]][0]}">${DONE[APP.batch.done[d.id]][1]}</span>` : ""}</div></td>
+      <td class="num">${(d.chars||0).toLocaleString()}</td>
+      ${STAGES.map(([k]) => `<td>${stageCell(d, ps, k)}</td>`).join("")}
+      <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b> ` : ""}${exp || (d.grade ? "" : '<span class="mute">-</span>')}</td>
+      <td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td></tr>`;
     if(open) h += ps.map(pt => `<tr class="sub"><td style="padding-left:22px"><input type="checkbox" ${PICK.has(pkey(d,pt))?"checked":""} ${dis} onchange="pick('${esc(pkey(d,pt))}',this.checked)"></td>
       <td class="mute">${pt.k}</td><td style="padding-left:22px">${esc(pt.title)} <span class="mute" style="font-size:12px">· 문단 ${pt.start}–${pt.end}</span></td>
-      <td class="num">${pt.chars.toLocaleString()}</td><td class="num">${pt.todo.length ? calls(pt.chars, pt.todo, audit) : "-"}</td><td>${partStatus(d, pt)}</td><td></td><td></td></tr>`).join("");
+      <td class="num">${pt.chars.toLocaleString()}</td>
+      ${STAGES.map(([k]) => `<td>${stageCell(d, [pt], k)}</td>`).join("")}
+      <td>${pt.exported ? `<span class="tag">✓ ${esc(pt.exported)}</span>` : '<span class="mute">-</span>'}</td><td></td></tr>`).join("");
     return h;
   };
   $("view").innerHTML = `<h1>대시보드</h1>
-    <div class="sub">글이나 절을 체크하고 [이어서 진행]을 누르면 하나씩 <b>진단 → 윤문 → 감사</b>까지 끝까지 돌립니다. 이미 끝난 부분은 건너뛰고, 실패한 구간만 다시 합니다.
-      긴 글(단행본)은 절·장 제목으로 나눠 보여 주므로 절마다 골라 돌릴 수 있습니다. 사용 한도에 걸리면 기다렸다가 이어서 하므로 퇴근 전에 걸어 두면 됩니다.</div>
-    <div class="card"><h2><span class="n">1</span>엔진 · 사용 한도</h2>
-      <div class="grid2">
-        <span>엔진</span><div class="row">${engineSelect("")}<span class="mute">자동 = Codex(ChatGPT)로 하다가 한도에 걸리면 Claude로 넘어갑니다.</span></div>
-        <span>한도면</span><div class="row">최대 <input type="number" id="d_wait" min="0" max="48" step="1" value="${s.wait_hours}" style="width:70px" onchange="saveSettings({wait_hours:this.value})"> 시간까지 기다렸다가 이어서
-          <span class="mute">0 = 기다리지 않고 바로 멈춤. 기다리는 동안 콘솔 창(run.bat)은 켜 두세요(PC 절전은 막습니다).</span></div>
-      </div></div>
-    <div class="card"><h2><span class="n">2</span>글 · 절 고르기 <span class="mute" style="font-weight:400">— ${docs.length}편 ${nparts}부분 체크 · 호출 약 ${total}회</span></h2>
-      ${APP.docs.length ? `<table class="dash"><thead><tr><th><input type="checkbox" ${keys.size && PICK.size===keys.size?"checked":""} onchange="pickAll(this.checked)" ${dis} title="모두"></th>
-        <th>번호</th><th>제목</th><th class="num">글자수</th><th class="num">남은 호출</th><th>상태</th><th>흔적</th><th>등급</th></tr></thead><tbody>
+    <div class="sub">글이나 절을 체크하고 단계 버튼을 누르면 고른 부분에만 그 단계를 합니다. 단계를 나눠 두었으니 <b>Codex 한도를 다른 일과 나눠 쓰며 시간대를 갈라 돌릴 수</b> 있습니다.
+      한 단계 버튼은 그 단계만 하고(앞 단계가 안 된 곳은 건너뜀), ▶ 버튼은 앞 단계부터 차례로 합니다. 이미 된 곳은 건너뛰고, 실패한 구간만 다시 합니다.</div>
+    ${acctLine()}
+    <div class="kpis">${kpi("글", APP.docs.length+"편", all.length > APP.docs.length ? all.length+"부분" : "")}${kpi("1 진단", doneN("detect")+" / "+all.length)}${kpi("2 윤문", doneN("rewrite")+" / "+all.length)}${kpi("3 감사", doneN("audit")+" / "+all.length)}${kpi("4 반영", all.filter(pt=>pt.exported).length + APP.docs.filter(d=>d.exported && partsOf(d).length===1).length + " / "+all.length)}</div>
+    <div class="card">
+      <div class="row" style="gap:6px">
+        <b>고른 편에</b> <span class="mute">(${sel.length ? `${docs.length}편 ${sel.length}부분` : "아직 안 골랐어요"})</span>
+        ${btn(["detect"], "1 진단")}${btn(["rewrite"], "2 윤문")}${btn(["audit"], "3 감사")}${btn(["export"], "4 반영")}
+        <span class="mute">|</span>${btn(["detect","rewrite","audit"], "▶ 1→3", "primary")}${btn(["detect","rewrite","audit","export"], "▶ 1→4", "primary")}
+        ${run && isBatch(j) ? `<button onclick="stopJob()">■ 멈춤</button>` : ""}
+      </div>
+      ${APP.docs.length ? `<table class="dash" style="margin-top:10px"><thead><tr><th><input type="checkbox" ${keys.size && PICK.size===keys.size?"checked":""} onchange="pickAll(this.checked)" ${dis} title="모두"></th>
+        <th>번호</th><th>제목</th><th class="num">글자수</th><th>1 진단</th><th>2 윤문</th><th>3 감사</th><th>4 반영 · 등급</th><th>흔적</th></tr></thead><tbody>
         ${APP.docs.map(docRow).join("")}</tbody></table>`
         : `<div class="empty">아직 글이 없습니다. <a href="#/new">새 글 넣기</a>에서 넣으세요.</div>`}
-      ${bigWarn(total)}
-      <div class="row" style="margin-top:10px">
-        ${run ? `<button class="big" onclick="stopJob()">■ 멈춤</button>` : `<button class="big primary" onclick="runBatch()" ${nparts?"":"disabled"}>▶ 체크한 ${docs.length}편${nparts > docs.length ? ` ${nparts}부분` : ""} 이어서 진행</button>`}
-        <label class="mute"><input type="checkbox" id="d_audit" ${audit?"checked":""} ${dis} onchange="rendered=null;renderDash()"> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
-      </div>
-      <div class="mute" style="margin-top:6px">윤문이 끝나면 글마다 들어가서 문단별로 채택을 확인하고 [반영]을 누르세요. 반영은 자동으로 하지 않습니다.</div>
-      <div id="dlog"></div></div>`;
+      <div class="mute" style="margin-top:8px">칸의 「N구간」은 남은 Codex 호출 수입니다(마우스를 올리면 어림 시간). 「4 반영」은 고른 절마다 윤문본 · 진단표 파일을 따로 만듭니다(디자인실에 절 단위로 넘길 때).
+        채택은 글 화면에서 고른 대로, 손대지 않았으면 기본값으로 들어갑니다.</div>
+      ${bigWarn(STAGES.reduce((a,[k])=>a+leftSegs(sel, k), 0))}
+      <div id="dlog"></div></div>
+    <div class="card"><h2>엔진 · 사용 한도</h2>
+      <div class="grid2">
+        <span>엔진</span><div class="row">${engineSelect("")}<span class="mute">Codex(ChatGPT)가 기본입니다. 자동 = Codex로 하다가 한도에 걸리면 Claude로(Claude CLI에 로그인된 PC만).</span></div>
+        <span>한도면</span><div class="row">최대 <input type="number" id="d_wait" min="0" max="48" step="1" value="${s.wait_hours}" style="width:70px" onchange="saveSettings({wait_hours:this.value})"> 시간까지 기다렸다가 이어서
+          <span class="mute">0 = 기다리지 않고 바로 멈춤. 기다리는 동안 콘솔 창(run.bat)은 켜 두세요(PC 절전은 막습니다).</span></div>
+      </div></div>`;
   document.querySelectorAll("[data-ind='1']").forEach(e => e.indeterminate = true);
   $("dlog").dataset.sig = ""; dashLog();
 }
@@ -543,12 +563,16 @@ function pick(k, on){ on ? PICK.add(k) : PICK.delete(k); savePick(); renderDash(
 function pickDoc(id, on){ const d = APP.docs.find(x=>x.id===id); for(const pt of partsOf(d)) on ? PICK.add(pkey(d,pt)) : PICK.delete(pkey(d,pt)); savePick(); renderDash() }
 function pickAll(on){ PICK = new Set(on ? APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))) : []); savePick(); renderDash() }
 function fold(id){ FOLD.has(id) ? FOLD.delete(id) : FOLD.add(id); rendered = null; renderDash() }
-async function runBatch(){
+async function runSteps(steps){
   const items = APP.docs.filter(d => pickedParts(d).length).map(d => { const ps = partsOf(d), ks = pickedParts(d).map(pt=>pt.k);
     return {id:d.id, parts: ks.length === ps.length ? null : ks} });
-  const n = items.reduce((a,it)=>a+(it.parts ? it.parts.length : partsOf(APP.docs.find(d=>d.id===it.id)).length), 0);
-  if(!confirm(`${items.length}편(${n}부분)을 진단 → 윤문${$("d_audit").checked ? " → 감사" : ""}까지 차례로 돌립니다. 계속할까요?`)) return;
-  try{ await api("/api/batch",{method:"POST",body:JSON.stringify({items, audit:$("d_audit").checked})}); toast("시작했습니다. 창을 닫아도 계속 진행됩니다.", 5000); refresh() }
+  const sel = APP.docs.flatMap(d => pickedParts(d));
+  const names = {detect:"진단", rewrite:"윤문", audit:"감사", export:"반영"};
+  const n = steps.filter(st=>st!=="export").reduce((a,st)=>a+leftSegs(sel, st), 0);
+  const m = steps.filter(st=>st!=="export").reduce((a,st)=>a+estMin(leftSegs(sel, st), st), 0);
+  if(!confirm(`${items.length}편 ${sel.length}부분에 「${steps.map(s=>names[s]).join(" → ")}」을(를) 합니다.`
+    + (n ? `\n호출 약 ${n}회 · Codex로 약 ${m}분 (어림)` : "") + "\n계속할까요?")) return;
+  try{ await api("/api/batch",{method:"POST",body:JSON.stringify({items, steps})}); toast("시작했습니다. 창을 닫아도 계속 진행됩니다.", 5000); refresh() }
   catch(e){ toast(e.message, 8000) }
 }
 async function saveSettings(patch){
@@ -560,7 +584,7 @@ function engineSelect(cls){
 }
 function updateJobBox(){
   const el = $("job"), j = APP.job; if(!el) return;
-  if(!j.name || (j.uid !== DS.doc.id && !(j.name === "이어서 진행" && APP.batch.ids.includes(DS.doc.id)))){ el.innerHTML = ""; return }
+  if(!j.name || (j.uid !== DS.doc.id && !(isBatch(j) && APP.batch.ids.includes(DS.doc.id)))){ el.innerHTML = ""; return }
   const sig = j.log.length+"|"+j.running+"|"+ALERT_OFF;
   if(el.dataset.sig === sig) return; el.dataset.sig = sig;
   const log = `<pre class="log">${esc(j.log.join("\n")||"시작 중…")}</pre>`;

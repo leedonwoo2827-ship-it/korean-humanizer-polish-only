@@ -24,8 +24,8 @@ BACKUP = WS.parent / "backup"
 STAGES = ["01_원문", "02_탐지", "03_윤문", "04_검토", "05_반영본"]
 
 SETTINGS = WS / "_settings.json"
-ENGINES = {"auto": "자동 (Codex 먼저, 한도면 Claude)", "codex": "Codex (ChatGPT)", "claude": "Claude"}
-DEFAULTS = {"engine": "auto", "wait_hours": 8}
+ENGINES = {"codex": "Codex (ChatGPT)", "auto": "자동 (Codex 먼저, 한도면 Claude)", "claude": "Claude"}
+DEFAULTS = {"engine": "codex", "wait_hours": 8}
 
 GENRES = ["단행본 원고", "논문·보고서", "칼럼·에세이", "보도자료·공문", "블로그·후기", "기타"]
 

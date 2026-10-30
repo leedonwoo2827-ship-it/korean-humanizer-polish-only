@@ -182,10 +182,16 @@ def picked(paras, ks):
     return {i for pt in parts(paras) if pt["k"] in ks for i in range(pt["start"], pt["end"] + 1)}
 
 
-def done_paras(rw):
-    """윤문이 끝난 문단 번호 (실패하지 않은 구간 기록에 들어 있는 것)."""
+def audited(nt):
+    """감사까지 끝난 구간 기록인가. 바뀐 문단이 없던 구간은 감사할 것이 없으니 끝난 것으로 본다.
+    예전 기록(audited 표시 없음)은 감사 요약이 있으면 끝난 것."""
+    return nt.get("audited", bool(nt.get("audit")) or nt.get("note") == "그대로 둠")
+
+
+def done_paras(rw, stage="rewrite"):
+    """윤문(stage='audit' 면 감사까지)이 끝난 문단 번호."""
     return {i for nt in (rw or {}).get("notes", []) if not (nt.get("failed") or nt.get("pending"))
-            for i in range(nt["ids"][0], nt["ids"][1] + 1)}
+            and (stage != "audit" or audited(nt)) for i in range(nt["ids"][0], nt["ids"][1] + 1)}
 
 
 def _only_run(groups, only):
@@ -350,6 +356,63 @@ def _para_row(i, orig, text):
             "missing": [] if not text else audit.missing(orig, text)}
 
 
+def _audit_group(did, d, rows, label, name):
+    """윤문한 한 구간을 감사 → {residual, checks, audit_summary}. 프롬프트가 같으면 캐시를 다시 쓴다."""
+    new, orig = [r["text"] for r in rows], [r["orig"] for r in rows]
+    back = {n + 1: r["i"] for n, r in enumerate(rows)}  # 감사는 구간 안 번호로
+    prompt = AUDIT_PROMPT.format(genre=d.get("genre", "기타"), table=taxonomy.table_text(),
+                                 guidance=taxonomy.guidance_text(),
+                                 orig=numbered(orig, range(1, len(orig) + 1)),
+                                 part=numbered(new, range(1, len(new) + 1)))
+    a = cached(did, "03_윤문", prompt, AUDIT_SCHEMA, label)
+    left = [x for x in (locate(new, range(1, len(new) + 1), {**it, "source": "ai"}) for it in a["items"]) if x]
+    left = merge([x for x in taxonomy.rule_scan(new)], left)
+    for x in left:
+        x["para"] = back[x["para"]]
+    print(f"  [감사] {name} → 남은 흔적 {len(left)}건")
+    return {"residual": left, "checks": {kk: a[kk] for kk in ("genre_kept", "register_kept", "no_new_flourish")},
+            "audit_summary": a["summary"]}
+
+
+def audit_stage(did, only=None):
+    """3 감사 — 윤문은 됐고 감사는 안 된 구간만 (only = 고른 문단 번호). 윤문 안 된 곳은 건너뛴다."""
+    d, paras = config.doc(did), _doc_paras(did)
+    rw = config.load(did, "03_윤문", "rewrite.json")
+    if not rw:
+        print(f"[감사] {d['title']} — 아직 윤문하지 않아 건너뜁니다")
+        return None
+    det = config.load(did, "02_탐지", "detect.json")
+    starts = {g["ids"][0]: k for k, g in enumerate(regroup(det["chunks"], paras, parts(paras)))}  # 윤문과 같은 캐시 이름
+    by = {r["i"]: r for r in rw["paras"]}
+    want = [nt for nt in rw["notes"] if not (nt.get("failed") or nt.get("pending")) and not audited(nt)
+            and (only is None or only & set(range(nt["ids"][0], nt["ids"][1] + 1)))]
+    print(f"[감사] {d['title']} — {len(want)}구간을 {llm.label()}로 감사" + (" (고른 부분만)" if only is not None else ""))
+
+    def fn(j, nt):
+        rows = [by[i] for i in range(nt["ids"][0], nt["ids"][1] + 1)]
+        if not any(r["text"] != r["orig"] for r in rows):
+            return {"residual": [x for x in det["items"] if nt["ids"][0] <= x["para"] <= nt["ids"][1]], "checks": {}, "audit_summary": ""}
+        k = starts.get(nt["ids"][0])
+        return _audit_group(did, d, rows, f"c{k + 1:02d}_audit" if k is not None else f"p{nt['ids'][0]}_audit",
+                            f"문단 {nt['ids'][0]}–{nt['ids'][1]}")
+
+    results = run_chunks(fn, want)
+    for nt, res in zip(want, results):
+        if res is None:
+            continue
+        for i in range(nt["ids"][0], nt["ids"][1] + 1):
+            by[i]["residual"] = [x for x in res["residual"] if x["para"] == i]
+        nt.update(audited=True, audit=res["audit_summary"])
+        for kk, v in res["checks"].items():
+            rw["checks"][kk] = rw["checks"].get(kk, True) and v
+    config.save(did, "03_윤문", "rewrite.json", rw)
+    left = sum(r is None for r in results)
+    s = audit.summary(paras, det, rw, config.load(did, "04_검토", "decisions.json") or {}, d.get("target"))
+    print(f"[감사] 끝 — 등급 {s['grade']} · 남은 S1 {s['residual']['S1']} / S2 {s['residual']['S2']}"
+          + (f" · 실패 {left}구간 (다시 누르면 그것만)" if left else ""))
+    return rw
+
+
 def rewrite(did, do_audit=True, only=None):
     """only = 윤문할 문단 번호 집합 (고른 절만). 나머지는 예전 윤문 결과 · 체크를 그대로 둔다."""
     d, paras = config.doc(did), _doc_paras(did)
@@ -384,26 +447,11 @@ def rewrite(did, do_audit=True, only=None):
                     rows[n] = r2
             note = note2
         print(f"  [윤문] 구간 {k + 1} → 바뀐 문단 {sum(r['text'] != r['orig'] for r in rows)}/{len(rows)}")
-        res = {"rows": rows, "note": note}
-        if do_audit and any(r["text"] != r["orig"] for r in rows):
-            new = [r["text"] for r in rows]
-            orig = [r["orig"] for r in rows]
-            local = {i: n + 1 for n, i in enumerate(ids)}  # 감사는 구간 안 번호로
-            prompt = AUDIT_PROMPT.format(genre=d.get("genre", "기타"), table=taxonomy.table_text(),
-                                         guidance=taxonomy.guidance_text(),
-                                         orig=numbered(orig, range(1, len(orig) + 1)),
-                                         part=numbered(new, range(1, len(new) + 1)))
-            a = cached(did, "03_윤문", prompt, AUDIT_SCHEMA, f"c{k + 1:02d}_audit")
-            back = {v: kk for kk, v in local.items()}
-            left = [x for x in (locate(new, range(1, len(new) + 1), {**it, "source": "ai"}) for it in a["items"]) if x]
-            left = merge([x for x in taxonomy.rule_scan(new)], left)
-            for x in left:
-                x["para"] = back[x["para"]]
-            res.update(residual=left, checks={kk: a[kk] for kk in ("genre_kept", "register_kept", "no_new_flourish")},
-                       audit_summary=a["summary"])
-            print(f"  [감사] 구간 {k + 1} → 남은 흔적 {len(left)}건")
+        res = {"rows": rows, "note": note, "audited": False}
+        if not any(r["text"] != r["orig"] for r in rows):
+            res.update(residual=[x for x in det["items"] if x["para"] in ids], audited=True)
         elif do_audit:
-            res["residual"] = [x for x in det["items"] if x["para"] in ids]
+            res.update(_audit_group(did, d, rows, f"c{k + 1:02d}_audit", f"구간 {k + 1}"), audited=True)
         return res
 
     got = dict(zip(run, run_chunks(lambda j, ch: fn(run[j], ch), [groups[k] for k in run])))
@@ -427,7 +475,7 @@ def rewrite(did, do_audit=True, only=None):
             r["residual"] = [x for x in res.get("residual", []) if x["para"] == r["i"]]
         rows += res["rows"]
         notes.append({"ids": [ids[0], ids[-1]], "note": res["note"], "audit": res.get("audit_summary", ""),
-                      "failed": bool(res.get("failed"))})
+                      "failed": bool(res.get("failed")), "audited": bool(res.get("audited"))})
         for kk in checks:
             checks[kk] = checks[kk] and res.get("checks", {}).get(kk, True)
     notes.sort(key=lambda nt: nt["ids"][0])

@@ -15,7 +15,7 @@
   POST /api/second?id=          2차 윤문: 지금 윤문본을 새 글로 넣는다
   POST /api/open?id=&stage=     탐색기로 폴더 열기
   POST /api/archive?id=         보관 (backup/ 으로 옮김) · POST /api/restore {name}
-  POST /api/batch               대시보드: 체크한 글·절 {items: [{id, parts}], audit} 을 진단 → 윤문까지 이어서 (한도면 기다림)
+  POST /api/batch               대시보드 단계 버튼: 체크한 글·절 {items: [{id, parts}], steps: [detect·rewrite·audit·export]} (한도면 기다림)
   POST /api/stop                지금 작업 멈춤 (끝난 구간은 캐시에 남음)
   POST /api/settings            엔진(auto · codex · claude) · 한도 대기 시간
   POST /api/codex/refresh|login|logout · /api/claude/refresh|login|logout
@@ -296,7 +296,8 @@ class H(BaseHTTPRequestHandler):
                          for it in b.get("items", []) if it.get("id") in have]
                 if not items:
                     raise ValueError("진행할 글을 체크하세요.")
-                ok = JOB.start("이어서 진행", None, lambda: batch.run(items, do_audit=b.get("audit", True)))
+                steps = [s for s in b.get("steps") or ["detect", "rewrite", "audit"] if s in batch.STEPS]
+                ok = JOB.start(" → ".join(batch.STEPS[s] for s in steps), None, lambda: batch.run(items, steps))
                 return self._send(200 if ok else 409, {"ok": True} if ok else busy)
             if path == "/api/stop":
                 llm.CANCEL.set()
