@@ -24,20 +24,29 @@ def split_text(text):
     return [p for p in paras if p]
 
 
-def _pdf(path):
-    """PDF 글상자(block) 하나 = 문단 하나. 블록 안 줄바꿈은 이어 붙이고 쪽 번호는 버린다."""
+def _pdf_blocks(path):
+    """[(PDF 쪽, 문단)]  글상자(block) 하나 = 문단 하나. 블록 안 줄바꿈은 이어 붙이고 쪽 번호만 있는 블록은 버린다."""
     import fitz
-    paras = []
+    out = []
     with fitz.open(path) as pdf:
-        for page in pdf:
+        for pno, page in enumerate(pdf, 1):
             for block in page.get_text("blocks"):
                 if block[6] != 0:  # 그림 블록
                     continue
                 lines = [l.strip() for l in block[4].splitlines() if l.strip()]
                 if not lines or re.fullmatch(r"[-–—\s]*\d+[-–—\s]*", " ".join(lines)):
                     continue
-                paras.append(_join(lines))
-    return paras
+                out.append((pno, _join(lines)))
+    return out
+
+
+def _pdf(path):
+    return [t for _, t in _pdf_blocks(path)]
+
+
+def pdf_pages(path):
+    """문단마다 PDF 쪽 번호 (paragraphs() 와 같은 순서·개수). 정오표의 '쪽' 칸에 쓴다."""
+    return [p for p, _ in _pdf_blocks(path)]
 
 
 def _join(lines):

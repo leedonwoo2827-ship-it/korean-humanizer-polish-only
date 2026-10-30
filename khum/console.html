@@ -290,7 +290,8 @@ function renderSummary(){
   let h = `<div class="kpis">`;
   if(s.grade) h += `<div class="kpi"><span class="mute">등급</span><b class="grade g${s.grade}">${s.grade}</b></div>
     <div class="kpi"><span class="mute">변경률</span><b class="${s.rate>.5?"bad":s.rate>.3?"warn":""}">${pct(s.rate)}</b></div>
-    <div class="kpi"><span class="mute">채택 문단</span><b>${s.adopted} / ${s.n_paras}</b></div>
+    ${s.n_edits != null ? `<div class="kpi"><span class="mute">체크한 수정 (정오표)</span><b>${s.checked} / ${s.n_edits}</b></div>`
+      : `<div class="kpi"><span class="mute">채택 문단</span><b>${s.adopted} / ${s.n_paras}</b></div>`}
     <div class="kpi"><span class="mute">남은 흔적</span><b>S1 ${s.residual.S1} · S2 ${s.residual.S2}</b></div>`;
   h += `<div class="kpi"><span class="mute">찾은 흔적 (원문)</span><b>S1 ${f.S1} · S2 ${f.S2} · S3 ${f.S3}</b></div>
     <div class="kpi"><span class="mute">글자수 (공백 포함/제외)</span><b>${s.final_chars ? `${s.final_chars.with_space.toLocaleString()} / ${s.final_chars.no_space.toLocaleString()}` : `${s.orig_chars.with_space.toLocaleString()} / ${s.orig_chars.no_space.toLocaleString()}`}</b>
@@ -313,11 +314,14 @@ function renderResult(){
   const items = det.items.filter(x => SEV==="all" || x.severity===SEV);
   const byPara = {}; for(const x of det.items) (byPara[x.para] = byPara[x.para]||[]).push(x);
   const counts = {}; for(const x of det.items) counts[x.code] = (counts[x.code]||0)+1;
-  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed).length, pend = (rw ? rw.notes : det.chunks).filter(c=>c.pending).length;
+  // 정오표 방식(rw.edits)에서 예전 형식(fmt 없음) 구간 기록은 실패가 아니라 '아직 안 함'
+  const old = c => rw && rw.edits && !c.fmt;
+  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed && !old(c)).length, pend = (rw ? rw.notes : det.chunks).filter(c=>c.pending || old(c)).length;
   let h = `<div class="card"><h2><span class="n">3</span>결과 ${rw ? "· 등급" : "· 진단"}</h2><div id="sum">${renderSummary()}</div>
     ${fails ? `<div class="alert"><b>⚠ ${fails}개 구간이 실패해 원문 그대로 두었습니다.</b> 같은 버튼을 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}
     ${pend ? `<div class="note">아직 ${rw ? "윤문" : "진단"}하지 않은 구간이 ${pend}개 있습니다 (대시보드에서 절을 골라 돌린 글). 등급은 지금까지 한 것 기준입니다. 나머지는 <a href="#/dash">대시보드</a>에서 절을 골라 이어서 하세요.</div>` : ""}</div>`;
-  h += `<div class="card"><h2><span class="n">4</span>${rw ? "문단 대조 · 고를 것" : "원문 · AI 흔적 표시"}
+  if(rw && rw.edits) h += editsCard();
+  else h += `<div class="card"><h2><span class="n">4</span>${rw ? "문단 대조 · 고를 것" : "원문 · AI 흔적 표시"}
       <span class="mute" style="font-weight:400">${rw ? "— 체크한 문단만 윤문본에 들어갑니다. 50% 넘게 바뀌었거나 숫자·인용이 빠진 문단은 기본으로 원문 유지" : ""}</span></h2>
     ${rw ? `<div class="row" style="margin-bottom:6px"><button class="iconbtn" onclick="setAll(true)">모두 채택</button><button class="iconbtn" onclick="setAll(false)">모두 원문 유지</button><button class="iconbtn" onclick="setAll(null)">기본값으로</button>
       <span class="mute"><ins>초록</ins> 새로 들어간 글자 · <del>빨강</del> 빠진 글자</span></div>` : ""}
@@ -335,6 +339,80 @@ function renderResult(){
       <td><span class="sev ${x.severity}">${x.severity}</span></td><td>${esc(x.old_text)}</td><td>${esc(x.reason)}${x.source==="rule"?' <span class="tag plain">규칙</span>':""}</td></tr>`).join("") || `<tr><td colspan="5" class="mute">없습니다.</td></tr>`}
     </tbody></table></div>`;
   el.innerHTML = h;
+}
+
+/* ---------- 수정 항목(정오표) 검토 — 확률 · 체크 · 수정 문구 · 메모 ---------- */
+let EF = {min:0, part:"all", show:200};
+const ekey = e => "e:" + e.id;
+const eOn = e => { const d = DEC[ekey(e)]; return d && "apply" in d ? d.apply : e.on_default };
+const eNew = e => { const d = DEC[ekey(e)]; return d && d.new_text != null ? d.new_text : e.new_text };
+const partOf = i => (DS.parts.find(pt => pt.start <= i && i <= pt.end) || {}).title || "";
+function editsShown(){
+  const pt = EF.part === "all" ? null : DS.parts.find(x => String(x.k) === EF.part);
+  return DS.rewrite.edits.filter(e => e.p >= EF.min && (!pt || (pt.start <= e.para && e.para <= pt.end)));
+}
+function editsCard(){
+  const all = DS.rewrite.edits, shown = editsShown(), on = all.filter(eOn).length;
+  const opt = (v, t, cur) => `<option value="${v}" ${String(cur)===String(v)?"selected":""}>${esc(t)}</option>`;
+  return `<div class="card"><h2><span class="n">4</span>수정 후보 · 체크 <span class="mute" style="font-weight:400">— 체크한 것만 정오표에 들어갑니다. 수정확률 60% 이상은 처음부터 체크되어 있습니다.</span></h2>
+    <div class="row" style="margin-bottom:8px">
+      <select onchange="EF.min=+this.value;EF.show=200;renderResult()">${[[0,"확률 전체"],[.4,"40% 이상"],[.6,"60% 이상"],[.8,"80% 이상"]].map(([v,t])=>opt(v,t,EF.min)).join("")}</select>
+      ${DS.parts.length > 1 ? `<select onchange="EF.part=this.value;EF.show=200;renderResult()">${opt("all","절 전체",EF.part)}${DS.parts.map(pt=>opt(pt.k, pt.title.slice(0,24), EF.part)).join("")}</select>` : ""}
+      <button class="iconbtn" onclick="setEdits(true)">보이는 것 모두 체크</button><button class="iconbtn" onclick="setEdits(false)">보이는 것 모두 해제</button><button class="iconbtn" onclick="setEdits(null)">기본값으로</button>
+      <span class="mute">보이는 ${shown.length}건 · 전체 ${all.length}건 중 체크 <b>${on}</b>건</span></div>
+    <div id="paras">${shown.slice(0, EF.show).map(editHtml).join("") || `<div class="empty">이 조건에 맞는 수정 후보가 없습니다.</div>`}</div>
+    ${shown.length > EF.show ? `<div class="row" style="margin-top:8px"><button onclick="EF.show+=200;renderResult()">더 보기 (${shown.length - EF.show}건 남음)</button></div>` : ""}
+    <div class="row" style="margin-top:12px"><button class="big primary" onclick="exportDoc()">반영 → 정오표 만들기 (엑셀 · 검토 PDF/HTML · 게시판)</button>
+      <label class="iconbtn" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:6px 12px" title="정오표 검토 HTML 에서 저장한 .json 이나, 「전체 후보」 시트를 고친 정오표 .xlsx">체크본 가져오기
+        <input type="file" accept=".json,.xlsx" hidden onchange="importReview(this.files[0]);this.value=''"></label>
+      <button onclick="secondPass()" title="체크한 대로 고친 글을 새 글로 넣어 한 번 더 진단·윤문합니다">2차 윤문 (고친 글을 새 글로)</button></div>
+    <div class="mute" style="margin-top:6px">회의할 때는 「정오표_검토.pdf」를 인쇄하거나 「정오표_검토.html」에서 체크한 뒤 [체크 결과 저장] → 여기 「체크본 가져오기」. 엑셀은 「전체 후보」 시트의 반영(O) · 수정 문구 · 메모를 고쳐 올리면 됩니다.</div>
+    ${filesHtml()}
+  </div>`;
+}
+function editHtml(e){
+  const on = eOn(e), d = DEC[ekey(e)] || {}, pg = DS.pages[e.para-1], orig = DS.paras[e.para-1] || "";
+  const k = orig.indexOf(e.old_text);
+  const ctx = k < 0 ? esc(orig) : esc(orig.slice(0, k)) + `<mark class="S2">${esc(e.old_text)}</mark>` + esc(orig.slice(k + e.old_text.length));
+  const warn = [!e.located ? "원문에서 위치를 못 찾음 — 직접 확인" : "", e.missing && e.missing.length ? "빠짐: " + e.missing.join(", ") : ""].filter(Boolean);
+  return `<div class="para ${on?"":"off"}" id="e${esc(e.id)}"><div class="no" style="font-size:12px">${Math.round(e.p*100)}%</div><div class="body">
+    <div class="meta" style="margin-top:0"><label class="adopt"><input type="checkbox" ${on?"checked":""} onchange="decideE('${esc(e.id)}',{apply:this.checked})"> 반영</label>
+      <span class="mute">${pg ? "p."+pg+" · " : ""}문단 ${e.para}${DS.parts.length > 1 ? " · " + esc(partOf(e.para).slice(0,16)) : ""}</span>
+      <span class="tag plain" title="${esc((DS.codes[e.code]||{}).fix||"")}">${esc(e.code)} ${esc((DS.codes[e.code]||{}).name||"")}</span>
+      ${warn.map(w=>`<span class="tag bad">${esc(w)}</span>`).join("")}${d.new_text != null ? `<span class="tag">직접 고침</span>` : ""}</div>
+    <div class="txt" style="margin-top:4px"><del>${esc(e.old_text)}</del> → <ins>${esc(eNew(e)) || "(삭제)"}</ins></div>
+    <div class="mute" style="font-size:12.5px;margin-top:2px">${esc(e.reason)}</div>
+    <details><summary>원문 보기 · 수정 문구 고치기 · 메모</summary>
+      <div class="txt mute" style="margin:6px 0">${ctx}</div>
+      <div class="grid2" style="grid-template-columns:70px minmax(0,1fr)"><span>수정 문구</span><input type="text" id="en${esc(e.id)}" value="${esc(eNew(e))}">
+        <span>메모</span><input type="text" id="em${esc(e.id)}" value="${esc(d.note||"")}" placeholder="저자 문의 · 회의 결과 등"></div>
+      <div class="row" style="margin-top:4px"><button class="iconbtn" onclick="saveE('${esc(e.id)}')">저장</button>
+        ${d.new_text != null ? `<button class="iconbtn" onclick="decideE('${esc(e.id)}',{new_text:null},true)">AI 제안으로 되돌리기</button>` : ""}</div></details>
+  </div></div>`;
+}
+function decideE(id, patch, rerender){
+  const k = "e:" + id, cur = Object.assign({}, DEC[k]||{}, patch);
+  if(cur.new_text === null) delete cur.new_text;
+  DEC[k] = cur;
+  if(rerender) renderResult(); else { const el = $("e"+id); if(el) el.classList.toggle("off", !cur.apply) }
+  clearTimeout(decTimer); decTimer = setTimeout(pushDec, 400);
+}
+function saveE(id){
+  const e = DS.rewrite.edits.find(x=>x.id===id), v = $("en"+id).value.trim(), note = $("em"+id).value.trim();
+  decideE(id, {new_text: v !== e.new_text ? v : null, note: note || undefined}, true); toast("저장했습니다.");
+}
+function setEdits(v){
+  for(const e of (v === null ? DS.rewrite.edits : editsShown())){ const k = ekey(e);
+    if(v === null){ if(DEC[k]) delete DEC[k].apply } else DEC[k] = Object.assign({}, DEC[k]||{}, {apply:v}) }
+  renderResult(); pushDec();
+}
+async function importReview(f){
+  if(!f) return;
+  try{ const r = await fetch("/api/import-review?id="+encodeURIComponent(DS.doc.id),{method:"POST",headers:{"X-Filename":encodeURIComponent(f.name)},body:f});
+    const j = await r.json(); if(!r.ok || j.ok===false) throw new Error(j.error||r.status);
+    DEC = j.decisions; DS.summary = j.summary; renderResult();
+    toast(`체크본을 가져왔습니다: ${j.n}건 반영${j.miss ? ` · 맞추지 못한 줄 ${j.miss}건` : ""}. [반영 → 정오표 만들기]를 누르면 파일에 들어갑니다.`, 9000);
+  }catch(e){ toast("가져오기 실패: "+e.message, 9000) }
 }
 
 function paraHtml(p, found){
@@ -501,7 +579,7 @@ function renderDash(){
   const btn = (steps, label, cls="") => { const n = steps.filter(st=>st!=="export").reduce((a,st)=>a+leftSegs(sel, st), 0);
     const m = steps.filter(st=>st!=="export").reduce((a,st)=>a+estMin(leftSegs(sel, st), st), 0);
     return `<button class="${cls}" onclick="runSteps(${esc(JSON.stringify(steps))})" ${run || !sel.length ? "disabled" : ""}
-      title="${steps.includes("export") && steps.length === 1 ? "고른 절마다 윤문본 · 진단표 파일을 만듭니다 (호출 없음)" : `고른 부분: 호출 약 ${n}회 · Codex 약 ${m}분`}">${label}</button>` };
+      title="${steps.includes("export") && steps.length === 1 ? "정오표(엑셀 · 검토 PDF/HTML · 게시판)를 책 전체 한 번에 만듭니다 (호출 없음)" : `고른 부분: 호출 약 ${n}회 · Codex 약 ${m}분`}">${label}</button>` };
   const docRow = d => {
     const ps = partsOf(d), n = pickedParts(d).length, multi = ps.length > 1, open = multi && !FOLD.has(d.id);
     const st = (APP.batch.cur===d.id && run) ? "cur" : "";
@@ -536,8 +614,8 @@ function renderDash(){
         <th>번호</th><th>제목</th><th class="num">글자수</th><th>1 진단</th><th>2 윤문</th><th>3 감사</th><th>4 반영 · 등급</th><th>흔적</th></tr></thead><tbody>
         ${APP.docs.map(docRow).join("")}</tbody></table>`
         : `<div class="empty">아직 글이 없습니다. <a href="#/new">새 글 넣기</a>에서 넣으세요.</div>`}
-      <div class="mute" style="margin-top:8px">칸의 「N구간」은 남은 Codex 호출 수입니다(마우스를 올리면 어림 시간). 「4 반영」은 고른 절마다 윤문본 · 진단표 파일을 따로 만듭니다(디자인실에 절 단위로 넘길 때).
-        채택은 글 화면에서 고른 대로, 손대지 않았으면 기본값으로 들어갑니다.</div>
+      <div class="mute" style="margin-top:8px">칸의 「N구간」은 남은 Codex 호출 수입니다(마우스를 올리면 어림 시간). 「4 반영」은 정오표(엑셀 · 회의용 검토 PDF · 체크박스 검토 HTML · 게시판 HTML)를 책 전체 한 번에, 절 · 쪽 순으로 만듭니다.
+        체크는 글 화면에서 고른 대로, 손대지 않았으면 수정확률 60% 이상이 들어갑니다.</div>
       ${bigWarn(STAGES.reduce((a,[k])=>a+leftSegs(sel, k), 0))}
       <div id="dlog"></div></div>
     <div class="card"><h2>엔진 · 사용 한도</h2>

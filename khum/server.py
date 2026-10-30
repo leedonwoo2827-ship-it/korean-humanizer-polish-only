@@ -11,7 +11,8 @@
   POST /api/detect?id=          AI 흔적 진단 (백그라운드)
   POST /api/rewrite?id=         윤문 + 감사 (백그라운드, 진단이 없으면 진단부터)
   POST /api/decide?id=          문단별 채택/원문 유지 · 직접 고친 문장 저장 → 요약 다시 계산
-  POST /api/export?id=          [반영] → 05_반영본 (docx · txt · xlsx)
+  POST /api/export?id=          [반영] → 05_반영본 (정오표 xlsx · 검토 pdf/html · 게시판 html · txt + 참고용 윤문본)
+  POST /api/import-review?id=   체크본 가져오기: 검토 HTML 에서 저장한 .json 또는 정오표 .xlsx (X-Filename)
   POST /api/second?id=          2차 윤문: 지금 윤문본을 새 글로 넣는다
   POST /api/open?id=&stage=     탐색기로 폴더 열기
   POST /api/archive?id=         보관 (backup/ 으로 옮김) · POST /api/restore {name}
@@ -117,7 +118,7 @@ def brief(d):
         out["todo"] = batch.todo(d["id"]) if paras else []
         out["parts"] = batch.part_status(d["id"]) if paras else []
         if det:
-            out["failed"] = sum(bool(c.get("failed")) for c in det["chunks"]) + sum(bool(n.get("failed")) for n in (rw or {}).get("notes", []))
+            out["failed"] = sum(bool(c.get("failed")) for c in det["chunks"]) + sum(bool(n.get("failed") and ("edits" not in rw or n.get("fmt"))) for n in (rw or {}).get("notes", []))
         if det:
             s = audit.summary(paras, det, rw, config.load(d["id"], "04_검토", "decisions.json") or {}, d.get("target"))
             out.update(found=s["found"], grade=s.get("grade"))
@@ -138,7 +139,10 @@ def doc_state(did):
     det = config.load(did, "02_탐지", "detect.json")
     rw = config.load(did, "03_윤문", "rewrite.json")
     dec = config.load(did, "04_검토", "decisions.json") or {}
-    if rw:
+    if rw and "edits" in rw:  # 수정 항목 방식: 문단 diff 대신 항목마다 기본 체크
+        for e in rw["edits"]:
+            e["on_default"] = audit.edit_default(e)
+    elif rw:
         for p in rw["paras"]:
             p["diff"] = audit.diff_html(p["orig"], p["text"])
             p["adopt_default"] = audit.default_adopt(p)
@@ -148,6 +152,7 @@ def doc_state(did):
     return {"doc": d, "paras": paras, "detect": det, "rewrite": rw, "decisions": dec,
             "summary": audit.summary(paras, det, rw, dec, d.get("target")) if det else None,
             "codes": taxonomy.codes(), "groups": taxonomy.GROUPS, "files": files, "dir": str(config.doc_dir(did)),
+            "pages": config.pages(did) if paras else [], "parts": humanize.parts(paras) if paras else [],
             "job": JOB.state()}
 
 
@@ -273,6 +278,14 @@ class H(BaseHTTPRequestHandler):
                 s = audit.summary(config.load(did, "01_원문", "paragraphs.json"), config.load(did, "02_탐지", "detect.json"),
                                   config.load(did, "03_윤문", "rewrite.json"), dec, d.get("target"))
                 return self._send(200, {"ok": True, "summary": s})
+            if path == "/api/import-review":
+                fname = urllib.parse.unquote(self.headers.get("X-Filename", "체크본.json"))
+                n, miss = export.import_review(did, body, fname)
+                d = config.doc(did)
+                dec = config.load(did, "04_검토", "decisions.json") or {}
+                s = audit.summary(config.load(did, "01_원문", "paragraphs.json"), config.load(did, "02_탐지", "detect.json"),
+                                  config.load(did, "03_윤문", "rewrite.json"), dec, d.get("target"))
+                return self._send(200, {"ok": True, "n": n, "miss": miss, "decisions": dec, "summary": s})
             if path == "/api/export":
                 return self._send(200, {"ok": True, **export.run(did, js().get("decisions"))})
             if path == "/api/second":  # 2차 윤문: 지금 윤문본(체크 반영)을 새 글로

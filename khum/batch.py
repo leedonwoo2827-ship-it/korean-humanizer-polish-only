@@ -1,4 +1,4 @@
-"""대시보드 단계 버튼 — 고른 글 · 절에 「1 진단」「2 윤문」「3 감사」「4 반영」 또는 ▶1→3 · ▶1→4.
+"""대시보드 단계 버튼 — 고른 글 · 절에 「1 진단」「2 윤문」「3 감사」「4 반영」(정오표 — 책 전체 한 번에) 또는 ▶1→3 · ▶1→4.
 
 단계를 나눠 두는 건 Codex 사용 한도를 다른 일과 나눠 쓰며 시간대를 갈라 돌리기 위해서다.
   - 한 단계 버튼은 그 단계만 한다. 앞 단계가 안 된 부분은 건너뛰고 로그에 남긴다 (감사를 눌렀는데 윤문 호출이 생기지 않게).
@@ -94,8 +94,7 @@ def _step(did, step, only, ks):
     if step == "export":
         if lf["rewrite"]:
             print(f"  [반영] 윤문이 안 된 문단 {len(lf['rewrite'])}개는 원문 그대로 들어갑니다")
-        for k in ks if ks is not None else [None]:
-            export.run(did, part=k)
+        export.run(did)  # 정오표는 고른 절과 상관없이 책 전체 한 번에 (절 · 쪽 순)
 
 
 def _wait(e, deadline):

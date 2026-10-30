@@ -40,11 +40,14 @@ def _items_schema(extra=None):
 
 DETECT_SCHEMA = _items_schema({"triage": {"type": "string", "enum": TRIAGE}})
 AUDIT_SCHEMA = _items_schema({k: {"type": "boolean"} for k in ("genre_kept", "register_kept", "no_new_flourish")})
-REWRITE_SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["note", "paras"],
-    "properties": {"note": {"type": "string"}, "paras": {"type": "array", "items": {
-        "type": "object", "additionalProperties": False, "required": ["para", "text"],
-        "properties": {"para": {"type": "integer"}, "text": {"type": "string"}}}}}}
+REWRITE_SCHEMA = {  # 수정 항목(정오표 한 줄) 목록 — 문단 전체를 다시 쓰지 않는다
+    "type": "object", "additionalProperties": False, "required": ["note", "items"],
+    "properties": {"note": {"type": "string"}, "items": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["para", "old_text", "new_text", "code", "p_revise", "reason"],
+        "properties": {"para": {"type": "integer"}, "old_text": {"type": "string"}, "new_text": {"type": "string"},
+                       "code": {"type": "string", "enum": sorted(taxonomy.codes())},
+                       "p_revise": {"type": "number"}, "reason": {"type": "string"}}}}}}
 
 DETECT_PROMPT = """너는 한국어 원고의 'AI 티'를 진단하는 편집자다. [글]의 각 문단(P번호)을 읽고, 아래 분류표의 AI 흔적을 찾아라. 고치지는 마라.
 
@@ -68,7 +71,8 @@ DETECT_PROMPT = """너는 한국어 원고의 'AI 티'를 진단하는 편집자
 {part}
 """
 
-REWRITE_PROMPT = """너는 한국어 원고 윤문가다. [글]의 AI 티를 걷어 내고 사람이 쓴 자연스러운 한국어로 되돌려라.
+REWRITE_PROMPT = """너는 한국어 원고 윤문가다. [글]의 AI 티를 걷어 낼 '수정 항목'을 정오표 한 줄씩 내라.
+원고는 저자가 이 정오표를 보고 직접 고친다. 그래서 문단 전체를 다시 쓰지 말고, 고칠 구절과 고친 구절만 짝지어 낸다.
 
 장르: {genre}
 이 구간 트리아지: {triage}
@@ -82,13 +86,18 @@ REWRITE_PROMPT = """너는 한국어 원고 윤문가다. [글]의 AI 티를 걷
 {found}
 {voice}{length}
 규칙
-1. 찾은 흔적만 고친다. 흔적이 없는 문단은 원문 그대로 돌려준다(한 글자도 바꾸지 마라).
+1. 찾은 흔적만 고친다. 흔적이 없는 문단은 항목을 내지 않는다.
 2. 트리아지가 "{t1}"이면 서식(줄표·이모지·볼드·가운뎃점 등)만 정리하고 문장은 그대로 둔다.
-3. 지우지 말고 자연스러운 표현으로 '교체'한다. 원문이 다루는 내용은 빠짐없이 다룬다.
-4. 윤문하면서 새 흔적을 만들지 마라: 동의어 돌려쓰기, 접속어 추가, 원문에 없던 비유·수사, 줄표(—, –).
-5. 문단을 합치거나 나누지 마라. paras 에 [글]의 모든 문단을 같은 para 번호로 하나씩 낸다. text 에는 P번호 표시 없이 문장만.
-   문단 전체가 챗봇 잔재(K-1·K-2: 응대·안내·아첨 문구)뿐이면 text 를 빈 문자열로 낸다(문단 삭제). 그 밖의 문단은 지우지 마라.
-6. note = 이 구간에서 무엇을 고쳤는지 한 문장. 파일을 읽거나 명령을 실행하지 말고, 이 프롬프트만으로 답하라.
+3. 항목 하나 = 흔적 하나. old_text = 그 문단 원문을 띄어쓰기·기호까지 그대로 복사한 구절(6~120자, 그 문단 안에서 한 번만 나오게,
+   흔적 부분과 앞뒤 몇 글자, 길어도 한 문장). new_text = old_text 를 대신할 구절. para = 문단 번호(P 뒤 숫자).
+   항목끼리 old_text 범위가 겹치지 않게 한다. 한 문장에 흔적이 여럿이면 그 문장 하나를 한 항목으로 묶어도 된다.
+4. 지우지 말고 자연스러운 표현으로 '교체'한다. 원문이 다루는 내용은 빠짐없이 다룬다. 숫자·인용·고유명사는 new_text 에 그대로 남긴다.
+5. 윤문하면서 새 흔적을 만들지 마라: 동의어 돌려쓰기, 접속어 추가, 원문에 없던 비유·수사, 줄표(—, –).
+6. 문단 전체가 챗봇 잔재(K-1·K-2: 응대·안내·아첨 문구)뿐이면 old_text 를 그 문단 전체, new_text 를 빈 문자열로 낸다(문단 삭제).
+7. code = 이 흔적의 분류표 ID. reason = 왜 고치는지 한 문장.
+   p_revise = 이 수정을 반영해야 할 확률(0~1). AI 흔적이 분명하고 고친 구절이 뜻을 그대로 지키면 높게(0.8 이상),
+   사람도 흔히 쓰는 표현이거나 취향 차이에 가까우면 낮게(0.4 이하). 저자가 이 값을 보고 반영 여부를 고른다.
+8. note = 이 구간에서 무엇을 고쳤는지 한 문장. 파일을 읽거나 명령을 실행하지 말고, 이 프롬프트만으로 답하라.
 {retry}
 [글]
 {part}
@@ -188,9 +197,12 @@ def audited(nt):
     return nt.get("audited", bool(nt.get("audit")) or nt.get("note") == "그대로 둠")
 
 
+FMT = 2  # 윤문 결과 형식: 2 = 수정 항목(정오표). 예전(문단 통째로 다시 쓰기) 결과는 다시 윤문할 것으로 본다
+
+
 def done_paras(rw, stage="rewrite"):
-    """윤문(stage='audit' 면 감사까지)이 끝난 문단 번호."""
-    return {i for nt in (rw or {}).get("notes", []) if not (nt.get("failed") or nt.get("pending"))
+    """윤문(stage='audit' 면 감사까지)이 끝난 문단 번호. 예전 형식으로 한 윤문은 안 한 것으로 센다."""
+    return {i for nt in (rw or {}).get("notes", []) if not (nt.get("failed") or nt.get("pending")) and nt.get("fmt") == FMT
             and (stage != "audit" or audited(nt)) for i in range(nt["ids"][0], nt["ids"][1] + 1)}
 
 
@@ -336,9 +348,11 @@ def regroup(det_chunks, paras, parts_=None):
 
 
 def _rewrite_chunk(did, d, paras, ch, items, k, target_part, retry_note=""):
+    """한 구간 → 수정 항목 [{id, para, old_text, new_text, code, p, reason, located, missing}], note.
+    old_text 는 원문에서 다시 찾아 정확한 구절로 바꾼다. 못 찾으면 located=False (정오표엔 '위치 확인 필요')."""
     ids = ch["ids"]
     found = "\n".join(f"- P{x['para']} [{x['code']} {x['severity']}] \"{x['old_text']}\" — {x['reason']}"
-                      for x in items if x["para"] in ids) or "(없음 — 모든 문단을 원문 그대로 돌려줘라)"
+                      for x in items if x["para"] in ids) or "(없음 — 항목을 내지 마라)"
     voice = f"\n[글쓴이 문체 샘플 — 이 말투로 바꿔 쓴다. 샘플의 어휘 수준·문장 길이·종결어미를 따른다]\n{d['voice'][:3000]}\n" if d.get("voice") else ""
     length = (f"\n[분량] 이 구간을 공백 포함 약 {target_part}자(±5%)로 맞춘다. 늘릴 때는 원문에 이미 있는 사실을 풀어서, "
               f"줄일 때는 군더더기·완충 표현·중복부터. 없는 사실을 지어내지 않는다. 분량 때문이면 흔적 없는 문단도 고쳐도 된다.\n") if target_part else ""
@@ -346,8 +360,25 @@ def _rewrite_chunk(did, d, paras, ch, items, k, target_part, retry_note=""):
                                    table=taxonomy.table_text(), found=found, voice=voice, length=length,
                                    t1=TRIAGE[1], retry=retry_note, part=numbered(paras, ids))
     res = cached(did, "03_윤문", prompt, REWRITE_SCHEMA, f"c{k + 1:02d}" + ("_retry" if retry_note else ""))
-    got = {p["para"]: re.sub(r"^\s*\[?P\d+\]?\s*", "", p["text"]).strip() for p in res["paras"]}
-    return {i: got[i] if i in got else paras[i - 1] for i in ids}, res["note"]
+    edits, n = [], {}
+    for it in res["items"]:
+        para = it["para"] if it["para"] in ids else ids[0]
+        hit = locate(paras, ids, {**it, "para": para}) if it["old_text"].strip() else None
+        e = {"para": hit["para"] if hit else para, "old_text": hit["old_text"] if hit else it["old_text"],
+             "new_text": re.sub(r"^\s*\[?P\d+\]?\s*", "", it["new_text"]).strip(), "code": it["code"],
+             "p": round(max(0.0, min(1.0, float(it["p_revise"]))), 2), "reason": it["reason"], "located": bool(hit)}
+        if e["old_text"] == e["new_text"]:
+            continue
+        e["missing"] = audit.missing(e["old_text"], e["new_text"]) if e["new_text"] else []
+        n[e["para"]] = n.get(e["para"], 0) + 1
+        e["id"] = f"{e['para']}-{n[e['para']]}"
+        edits.append(e)
+    return edits, res["note"]
+
+
+def apply_all(orig, edits):
+    text, used = audit.apply_edits(orig, edits)
+    return text.strip() if used else orig
 
 
 def _para_row(i, orig, text):
@@ -432,22 +463,15 @@ def rewrite(did, do_audit=True, only=None):
         if ch["triage"] == TRIAGE[0] and not tp and not any(x["para"] in ids and x["severity"] != "S3" for x in det["items"]):
             print(f"  [윤문] 구간 {k + 1} → 흔적이 거의 없어 그대로 둡니다")
             return {"rows": [_para_row(i, paras[i - 1], paras[i - 1]) for i in ids], "note": "그대로 둠"}
-        texts, note = _rewrite_chunk(did, d, paras, ch, det["items"], k, tp)
-        rows = [_para_row(i, paras[i - 1], texts[i]) for i in ids]
-        bad = [r for r in rows if not r["deleted"] and (r["rate"] > audit.STOP and not tp or r["missing"])]
-        if bad:  # 롤백 후 재윤문: 문제 문단만 짚어 주고 한 번 더
-            why = "\n".join(f"- P{r['i']}: " + (f"변경률 {r['rate']:.0%} (50% 초과) " if r["rate"] > audit.STOP else "")
-                            + (f"원문의 {', '.join(r['missing'])} 이(가) 빠짐" if r["missing"] else "") for r in bad)
-            print(f"  [재윤문] 구간 {k + 1} — 문단 {len(bad)}개가 너무 많이 바뀌었거나 숫자·인용이 빠져 다시 시킵니다")
-            texts2, note2 = _rewrite_chunk(did, d, paras, ch, det["items"], k, tp,
-                                           retry_note=f"\n[다시 하기] 지난번 윤문에서 아래 문단이 철칙을 어겼다. 이번엔 탐지된 흔적만 최소로 고치고, 빠진 것은 원문대로 살려라.\n{why}\n")
-            for n, r in enumerate(rows):
-                r2 = _para_row(r["i"], r["orig"], texts2[r["i"]])
-                if r in bad and (len(r2["missing"]), r2["rate"]) < (len(r["missing"]), r["rate"]):
-                    rows[n] = r2
-            note = note2
-        print(f"  [윤문] 구간 {k + 1} → 바뀐 문단 {sum(r['text'] != r['orig'] for r in rows)}/{len(rows)}")
-        res = {"rows": rows, "note": note, "audited": False}
+        edits, note = _rewrite_chunk(did, d, paras, ch, det["items"], k, tp)
+        by = {}
+        for e in edits:
+            if e["located"]:
+                by.setdefault(e["para"], []).append(e)
+        rows = [_para_row(i, paras[i - 1], apply_all(paras[i - 1], by.get(i, []))) for i in ids]  # 모두 반영했을 때 (감사·변경률용)
+        print(f"  [윤문] 구간 {k + 1} → 수정 항목 {len(edits)}건 (60% 이상 {sum(e['p'] >= audit.EDIT_ON for e in edits)}건)"
+              + (f" · 위치 못 찾음 {sum(not e['located'] for e in edits)}건" if any(not e["located"] for e in edits) else ""))
+        res = {"rows": rows, "note": note, "audited": False, "edits": edits}
         if not any(r["text"] != r["orig"] for r in rows):
             res.update(residual=[x for x in det["items"] if x["para"] in ids], audited=True)
         elif do_audit:
@@ -460,6 +484,7 @@ def rewrite(did, do_audit=True, only=None):
     redo = {i for k in got for i in groups[k]["ids"]}
     old_notes = [nt for nt in (old or {}).get("notes", []) if not redo & set(range(nt["ids"][0], nt["ids"][1] + 1))]
     rows, notes = [], list(old_notes)
+    edits = [e for e in (old or {}).get("edits", []) if e["para"] not in redo]
     checks = {kk: (old or {}).get("checks", {}).get(kk, True) for kk in ("genre_kept", "register_kept", "no_new_flourish")}
     for k, ch in enumerate(groups):
         ids = ch["ids"]
@@ -474,15 +499,18 @@ def rewrite(did, do_audit=True, only=None):
         for r in res["rows"]:
             r["residual"] = [x for x in res.get("residual", []) if x["para"] == r["i"]]
         rows += res["rows"]
+        edits += res.get("edits", [])
         notes.append({"ids": [ids[0], ids[-1]], "note": res["note"], "audit": res.get("audit_summary", ""),
-                      "failed": bool(res.get("failed")), "audited": bool(res.get("audited"))})
+                      "failed": bool(res.get("failed")), "audited": bool(res.get("audited")), "fmt": FMT})
         for kk in checks:
             checks[kk] = checks[kk] and res.get("checks", {}).get(kk, True)
     notes.sort(key=lambda nt: nt["ids"][0])
-    out = {"paras": rows, "notes": notes, "checks": checks}
+    edits.sort(key=lambda e: (e["para"], paras[e["para"] - 1].find(e["old_text"])))
+    out = {"paras": rows, "notes": notes, "checks": checks, "edits": edits}
     config.save(did, "03_윤문", "rewrite.json", out)
     dec = config.load(did, "04_검토", "decisions.json") or {} if only is not None else {}
-    config.save(did, "04_검토", "decisions.json", {k: v for k, v in dec.items() if int(k) not in redo})  # 새로 윤문한 문단만 체크를 기본값부터
+    para_of = lambda key: int(key[2:].split("-")[0]) if key.startswith("e:") else int(key)
+    config.save(did, "04_검토", "decisions.json", {k: v for k, v in dec.items() if para_of(k) not in redo})  # 새로 윤문한 문단만 체크를 기본값부터
     d["status"] = "윤문완료"
     config.save_doc(d)
     s = audit.summary(paras, det, out, {}, target)

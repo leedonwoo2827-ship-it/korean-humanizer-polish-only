@@ -112,6 +112,27 @@ def save(did, name, file, data):
     _write(stage(did, name) / file, data)
 
 
+def pages(did):
+    """문단마다 쪽 번호 [int | None] — PDF로 넣은 글만 (01_원문/pages.json, 없으면 원본 PDF에서 한 번 만든다).
+    워드·붙여넣기는 쪽 정보가 없어 None."""
+    got = load(did, "01_원문", "pages.json")
+    if got is not None:
+        return got
+    paras = load(did, "01_원문", "paragraphs.json") or []
+    src = next(iter(sorted((doc_dir(did) / "01_원문").glob("*.pdf"))), None)
+    out = None
+    if src:
+        from . import extract
+        try:
+            pg = extract.pdf_pages(src)
+            out = pg if len(pg) == len(paras) else None
+        except Exception:
+            out = None
+    out = out or [None] * len(paras)
+    save(did, "01_원문", "pages.json", out)
+    return out
+
+
 def archive(did):
     """글 폴더를 backup/<시각>_<폴더이름>/ 으로 옮긴다 (지우지 않음)."""
     src = doc_dir(did)

@@ -51,8 +51,51 @@ def default_adopt(p):
     return p["text"] != p["orig"] and p["rate"] <= STOP and not p["missing"]
 
 
+# ---------- 수정 항목(정오표) — 윤문 결과가 rw["edits"] 로 오는 방식 ----------
+EDIT_ON = 0.6  # 수정확률 이 이상이면 처음부터 체크 (jev 와 같음)
+
+
+def edit_default(e):
+    """처음 체크: 수정확률 60% 이상이고, 원문에서 위치를 찾았고, 숫자·인용을 빠뜨리지 않은 것."""
+    return e["p"] >= EDIT_ON and e.get("located", True) and not e.get("missing")
+
+
+def edit_on(e, decisions):
+    d = decisions.get("e:" + e["id"], {})
+    return d.get("apply", edit_default(e)), d.get("new_text") or e["new_text"], d.get("note", "")
+
+
+def apply_edits(orig, edits):
+    """원문 문단에 수정 항목들을 적용 (old_text 위치 순서, 겹치면 앞의 것만) → (새 문단, 적용한 id 목록)."""
+    spans, at = [], 0
+    for e in sorted(edits, key=lambda e: orig.find(e["old_text"])):
+        k = orig.find(e["old_text"])
+        if k < 0 or k < at or not e["old_text"]:
+            continue
+        spans.append((k, k + len(e["old_text"]), e["new_text"], e["id"]))
+        at = k + len(e["old_text"])
+    out, pos = [], 0
+    for s, t, new, _ in spans:
+        out += [orig[pos:s], new]
+        pos = t
+    return "".join(out) + orig[pos:], [x[3] for x in spans]
+
+
 def final_paras(rw, decisions):
-    """[(문단번호, 최종 문장, 채택여부)]  decisions = {'3': {'adopt': bool, 'text': 직접 고친 문장|None}}"""
+    """[(문단번호, 최종 문장, 채택여부)]
+    수정 항목 방식(rw['edits']): 체크한 항목만 원문에 적용. decisions = {'e:<id>': {'apply', 'new_text', 'note'}}
+    예전 문단 방식: decisions = {'3': {'adopt': bool, 'text': 직접 고친 문장|None}}"""
+    if "edits" in rw:
+        by = {}
+        for e in rw["edits"]:
+            on, new, _ = edit_on(e, decisions)
+            if on and e.get("located", True):
+                by.setdefault(e["para"], []).append(dict(e, new_text=new))
+        out = []
+        for p in rw["paras"]:
+            text, used = apply_edits(p["orig"], by.get(p["i"], []))
+            out.append((p["i"], text.strip() if used else p["orig"], bool(used)))
+        return out
     out = []
     for p in rw["paras"]:
         d = decisions.get(str(p["i"]), {})
@@ -114,6 +157,9 @@ def summary(paras, detect, rw=None, decisions=None, target=None):
     fc = chars(final_text)
     out.update(residual=left, rate=r, lost=lost, selfcheck=selfcheck, grade=grade, advice=advice,
                final_chars=fc, adopted=sum(a for _, _, a in fin), changed=sum(p["text"] != p["orig"] for p in rw["paras"]))
+    if "edits" in rw:
+        dec = decisions or {}
+        out.update(n_edits=len(rw["edits"]), checked=sum(edit_on(e, dec)[0] for e in rw["edits"]))
     if target:
         n = fc["no_space" if target.get("no_space") else "with_space"]
         tol = target.get("tol", 0.05)
