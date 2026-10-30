@@ -62,6 +62,16 @@ def final_paras(rw, decisions):
     return out
 
 
+def doc_rate(fin, by, orig_text, final_text):
+    """글 전체 변경률. 짧으면 전체를 한 번에 비교하고, 길면(difflib 가 제곱으로 느려져 26만 자면 멈춘 듯 걸린다)
+    문단별 변경률을 원문 길이로 가중 평균한다."""
+    if len(orig_text) <= 20000:
+        return rate(orig_text, final_text)
+    tot = sum(len(by[i]["orig"]) for i, _, _ in fin) or 1
+    part = lambda i, t, a: 0 if not a else by[i]["rate"] if t == by[i]["text"] and "rate" in by[i] else rate(by[i]["orig"], t)
+    return round(sum(len(by[i]["orig"]) * part(i, t, a) for i, t, a in fin) / tot, 3)
+
+
 def summary(paras, detect, rw=None, decisions=None, target=None):
     """화면 · 진단표 위쪽 요약. rw 가 없으면(진단만) 원문 기준."""
     sev = lambda items: {s: sum(x["severity"] == s for x in items) for s in ("S1", "S2", "S3")}
@@ -71,11 +81,14 @@ def summary(paras, detect, rw=None, decisions=None, target=None):
         return out
     fin = final_paras(rw, decisions or {})
     by = {p["i"]: p for p in rw["paras"]}
+    found = {}
+    for x in detect["items"]:
+        found.setdefault(x["para"], []).append(x)
     residual = []
     for i, _, adopt in fin:  # 채택한 문단은 윤문본 감사 결과, 원문 유지 문단은 원래 탐지가 남은 흔적
-        residual += by[i].get("residual", []) if adopt else [x for x in detect["items"] if x["para"] == i]
+        residual += by[i].get("residual", []) if adopt else found.get(i, [])
     final_text = "\n\n".join(t for _, t, _ in fin if t)
-    r = rate(orig_text, final_text)
+    r = doc_rate(fin, by, orig_text, final_text)
     lost = sorted({m for i, t, a in fin if a and t for m in missing(by[i]["orig"], t)})
     checks = rw.get("checks", {})
     selfcheck = {
