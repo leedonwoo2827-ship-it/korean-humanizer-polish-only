@@ -15,7 +15,7 @@
   POST /api/second?id=          2차 윤문: 지금 윤문본을 새 글로 넣는다
   POST /api/open?id=&stage=     탐색기로 폴더 열기
   POST /api/archive?id=         보관 (backup/ 으로 옮김) · POST /api/restore {name}
-  POST /api/batch               대시보드: 체크한 글 {ids, audit} 을 진단 → 윤문까지 이어서 (한도면 기다림)
+  POST /api/batch               대시보드: 체크한 글·절 {items: [{id, parts}], audit} 을 진단 → 윤문까지 이어서 (한도면 기다림)
   POST /api/stop                지금 작업 멈춤 (끝난 구간은 캐시에 남음)
   POST /api/settings            엔진(auto · codex · claude) · 한도 대기 시간
   POST /api/codex/refresh|login|logout · /api/claude/refresh|login|logout
@@ -115,6 +115,7 @@ def brief(d):
         rw = config.load(d["id"], "03_윤문", "rewrite.json")
         out["chars"] = sum(len(p) for p in paras)
         out["todo"] = batch.todo(d["id"]) if paras else []
+        out["parts"] = batch.part_status(d["id"]) if paras else []
         if det:
             out["failed"] = sum(bool(c.get("failed")) for c in det["chunks"]) + sum(bool(n.get("failed")) for n in (rw or {}).get("notes", []))
         if det:
@@ -290,10 +291,12 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": True, "doc": config.restore(js()["name"])})
             if path == "/api/batch":
                 b = js()
-                ids = [i for i in b.get("ids", []) if any(d["id"] == i for d in config.docs())]
-                if not ids:
+                have = {d["id"] for d in config.docs()}
+                items = [(it["id"], sorted(it["parts"]) if it.get("parts") is not None else None)
+                         for it in b.get("items", []) if it.get("id") in have]
+                if not items:
                     raise ValueError("진행할 글을 체크하세요.")
-                ok = JOB.start("이어서 진행", None, lambda: batch.run(ids, do_audit=b.get("audit", True)))
+                ok = JOB.start("이어서 진행", None, lambda: batch.run(items, do_audit=b.get("audit", True)))
                 return self._send(200 if ok else 409, {"ok": True} if ok else busy)
             if path == "/api/stop":
                 llm.CANCEL.set()

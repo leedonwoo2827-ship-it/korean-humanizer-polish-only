@@ -120,16 +120,77 @@ AUDIT_PROMPT = """너는 윤문 감수자다. [윤문본]이 왜 아직 AI 같�
 
 
 # ---------- 공통 ----------
-def chunks(paras):
-    """[[문단번호(1부터)…], …]  약 CHUNK 자씩, 문단은 자르지 않는다."""
-    out, cur, n = [], [], 0
+def chunks(paras, parts_=None):
+    """[[문단번호(1부터)…], …]  약 CHUNK 자씩, 문단은 자르지 않고 부분(절) 경계도 넘지 않는다."""
+    out = []
+    for pt in parts_ or [{"start": 1, "end": len(paras)}]:
+        cur, n = [], 0
+        for i in range(pt["start"], pt["end"] + 1):
+            if cur and n + len(paras[i - 1]) > CHUNK:
+                out.append(cur)
+                cur, n = [], 0
+            cur.append(i)
+            n += len(paras[i - 1])
+        out += [cur] if cur else []
+    return out
+
+
+# ---------- 부분(절·장) — 긴 글을 나눠 골라 돌린다 ----------
+PART_RX = re.compile(r"^\s*(?:제\s*)?(\d{1,2})\s*(?:절|장|부)\s+\S|^\s*(?:PART|Part|Chapter|CHAPTER)\s*(\d{1,2})\b")
+PART_MIN = 20000    # 이보다 짧은 글은 나누지 않는다
+PART_CHARS = 30000  # 절·장 제목이 없으면 이만큼씩
+
+
+def parts(paras):
+    """[{k, title, start, end, chars}]  문단 번호는 1부터, end 포함.
+    '1절 … 2절 …' 처럼 번호가 1부터 차례로 오르는 짧은 제목 줄로 나눈다 (목차·요약의 같은 번호는 건너뜀).
+    제목이 없으면 약 PART_CHARS 자씩."""
+    n, total = len(paras), sum(map(len, paras))
+    if total < PART_MIN:
+        return [{"k": 0, "title": "전체", "start": 1, "end": n, "chars": total}]
+    heads, want = [], 1
     for i, p in enumerate(paras, 1):
-        if cur and n + len(p) > CHUNK:
-            out.append(cur)
-            cur, n = [], 0
-        cur.append(i)
-        n += len(p)
-    return out + ([cur] if cur else [])
+        m = PART_RX.match(p)
+        if not m or len(p) > 80 or re.search(r"\s\d{1,3}\s*$", p):  # 끝에 쪽번호가 붙은 줄은 목차
+            continue
+        no = int(m.group(1) or m.group(2))
+        if no == 1 and heads and heads[-1][0] - heads[0][0] < 60:  # 촘촘히 모인 제목(목차) 뒤에 본문 1절이 다시 나오면 거기서부터
+            heads, want = [], 1
+        if no == want:
+            heads.append((i, p.strip()))
+            want += 1
+    if len(heads) < 2:
+        heads, acc = [], PART_CHARS
+        for i, p in enumerate(paras, 1):
+            if acc >= PART_CHARS:
+                heads.append((i, None))
+                acc = 0
+            acc += len(p)
+    out = [{"start": 1, "end": heads[0][0] - 1, "title": "앞부분 (표지·목차)"}] if heads[0][0] > 1 else []
+    for j, (i, t) in enumerate(heads):
+        end = heads[j + 1][0] - 1 if j + 1 < len(heads) else n
+        out.append({"start": i, "end": end, "title": t or f"{j + 1}부분"})
+    for k, pt in enumerate(out):
+        pt.update(k=k, chars=sum(len(p) for p in paras[pt["start"] - 1:pt["end"]]))
+    return out
+
+
+def picked(paras, ks):
+    """고른 부분 번호들 → 문단 번호 집합 (ks 가 None 이면 None = 전체)."""
+    if ks is None:
+        return None
+    return {i for pt in parts(paras) if pt["k"] in ks for i in range(pt["start"], pt["end"] + 1)}
+
+
+def done_paras(rw):
+    """윤문이 끝난 문단 번호 (실패하지 않은 구간 기록에 들어 있는 것)."""
+    return {i for nt in (rw or {}).get("notes", []) if not (nt.get("failed") or nt.get("pending"))
+            for i in range(nt["ids"][0], nt["ids"][1] + 1)}
+
+
+def _only_run(groups, only):
+    """only(문단 번호 집합)에 걸치는 구간 번호만. only 가 None 이면 전부."""
+    return [k for k, ids in enumerate(groups) if only is None or only & set(ids)]
 
 
 def numbered(paras, ids):
@@ -209,12 +270,17 @@ def _doc_paras(did):
 
 
 # ---------- 탐지 ----------
-def detect(did):
+def detect(did, only=None):
+    """only = 진단할 문단 번호 집합 (고른 절만). 나머지 구간은 예전 진단 결과를 그대로 둔다."""
     d, paras = config.doc(did), _doc_paras(did)
     old = config.load(did, "02_탐지", "detect.json")  # 다시 진단이면 예전 구간 그대로 — 캐시가 맞아 실패 구간만 부른다
-    groups = [c["ids"] for c in old["chunks"]] if old and sum(len(c["ids"]) for c in old["chunks"]) == len(paras) else chunks(paras)
+    groups = [c["ids"] for c in old["chunks"]] if old and sum(len(c["ids"]) for c in old["chunks"]) == len(paras) \
+        else chunks(paras, parts(paras))
+    prev = {tuple(c["ids"]): c for c in old["chunks"] if not (c.get("failed") or c.get("pending"))} if old else {}
+    run = _only_run(groups, only)
     table, guide = taxonomy.table_text(), taxonomy.guidance_text()
-    print(f"[탐지] {d['title']} — 문단 {len(paras)}개 · {len(groups)}구간을 {llm.label()}로 진단")
+    print(f"[탐지] {d['title']} — 문단 {len(paras)}개 · {len(run)}구간을 {llm.label()}로 진단"
+          + (f" (고른 부분만 · 전체 {len(groups)}구간)" if only is not None else ""))
 
     def fn(k, ids):
         prompt = DETECT_PROMPT.format(genre=d.get("genre", "기타"), table=table, guidance=guide,
@@ -224,12 +290,15 @@ def detect(did):
         print(f"  [탐지] 구간 {k + 1} → {len(found)}건 · {res['triage']}")
         return {"ids": ids, "triage": res["triage"], "summary": res["summary"], "items": found}
 
-    results = run_chunks(fn, groups)
-    ai = [x for r in results if r for x in r["items"]]
-    items = merge(taxonomy.rule_scan(paras), ai)
-    out = {"chunks": [r or {"ids": ids, "triage": TRIAGE[2], "summary": "진단 실패 — 다시 누르세요.", "items": [], "failed": True}
-                      for r, ids in zip(results, groups)],
-           "items": items}
+    got = dict(zip(run, run_chunks(lambda j, ids: fn(run[j], ids), [groups[k] for k in run])))
+    out_chunks = []
+    for k, ids in enumerate(groups):
+        if k in got:
+            out_chunks.append(got[k] or {"ids": ids, "triage": TRIAGE[2], "summary": "진단 실패 — 다시 누르세요.", "items": [], "failed": True})
+        else:
+            out_chunks.append(prev.get(tuple(ids)) or {"ids": ids, "triage": TRIAGE[2], "summary": "아직 진단 안 함", "items": [], "pending": True})
+    items = merge(taxonomy.rule_scan(paras), [x for c in out_chunks for x in c["items"]])
+    out = {"chunks": out_chunks, "items": items}
     config.save(did, "02_탐지", "detect.json", out)
     d["status"] = "진단완료"
     config.save_doc(d)
@@ -239,17 +308,23 @@ def detect(did):
 
 
 # ---------- 윤문 · 감사 ----------
-def regroup(det_chunks, paras):
+def regroup(det_chunks, paras, parts_=None):
     """진단 구간을 약 CHUNK 자로 다시 묶는다 — 예전(2,500자) 진단을 그대로 쓰면서 윤문 호출 수를 줄인다.
-    트리아지는 묶인 것 중 가장 센 것."""
-    out, n = [], 0
+    부분(절) 경계는 넘지 않는다 (걸친 진단 구간은 경계에서 자른다). 트리아지는 묶인 것 중 가장 센 것."""
+    part_of = {i: pt["k"] for pt in parts_ or [] for i in range(pt["start"], pt["end"] + 1)}
+    pieces = []
     for ch in det_chunks:
+        for k in dict.fromkeys(part_of.get(i) for i in ch["ids"]):
+            pieces.append({"ids": [i for i in ch["ids"] if part_of.get(i) == k], "triage": ch["triage"], "part": k})
+    out, n = [], 0
+    for ch in pieces:
         size = sum(len(paras[i - 1]) for i in ch["ids"])
-        if out and n + size <= CHUNK:
-            out[-1] = {"ids": out[-1]["ids"] + ch["ids"], "triage": TRIAGE[max(TRIAGE.index(out[-1]["triage"]), TRIAGE.index(ch["triage"]))]}
+        if out and n + size <= CHUNK and out[-1]["part"] == ch["part"]:
+            out[-1] = {"ids": out[-1]["ids"] + ch["ids"], "part": ch["part"],
+                       "triage": TRIAGE[max(TRIAGE.index(out[-1]["triage"]), TRIAGE.index(ch["triage"]))]}
             n += size
         else:
-            out.append({"ids": list(ch["ids"]), "triage": ch["triage"]})
+            out.append(dict(ch, ids=list(ch["ids"])))
             n = size
     return out
 
@@ -275,13 +350,17 @@ def _para_row(i, orig, text):
             "missing": [] if not text else audit.missing(orig, text)}
 
 
-def rewrite(did, do_audit=True):
+def rewrite(did, do_audit=True, only=None):
+    """only = 윤문할 문단 번호 집합 (고른 절만). 나머지는 예전 윤문 결과 · 체크를 그대로 둔다."""
     d, paras = config.doc(did), _doc_paras(did)
-    det = config.load(did, "02_탐지", "detect.json") or detect(did)
+    det = config.load(did, "02_탐지", "detect.json") or detect(did, only)
+    old = config.load(did, "03_윤문", "rewrite.json") if only is not None else None
     total = sum(len(p) for p in paras) + 2 * (len(paras) - 1)
     target = d.get("target")
-    groups = regroup(det["chunks"], paras)
-    print(f"[윤문] {d['title']} — {len(groups)}구간을 {llm.label()}로 윤문" + (f" (목표 {target['chars']}자)" if target else ""))
+    groups = regroup(det["chunks"], paras, parts(paras))
+    run = _only_run([g["ids"] for g in groups], only)
+    print(f"[윤문] {d['title']} — {len(run)}구간을 {llm.label()}로 윤문" + (f" (목표 {target['chars']}자)" if target else "")
+          + (f" (고른 부분만 · 전체 {len(groups)}구간)" if only is not None else ""))
 
     def fn(k, ch):
         ids = ch["ids"]
@@ -327,21 +406,35 @@ def rewrite(did, do_audit=True):
             res["residual"] = [x for x in det["items"] if x["para"] in ids]
         return res
 
-    results = run_chunks(fn, groups)
-    rows, notes, checks = [], [], {"genre_kept": True, "register_kept": True, "no_new_flourish": True}
-    for ch, res in zip(groups, results):
+    got = dict(zip(run, run_chunks(lambda j, ch: fn(run[j], ch), [groups[k] for k in run])))
+    # 고르지 않은 부분: 예전 윤문 문단 · 구간 기록을 그대로 (없으면 원문 + '아직 안 함')
+    old_rows = {r["i"]: r for r in (old or {}).get("paras", [])}
+    redo = {i for k in got for i in groups[k]["ids"]}
+    old_notes = [nt for nt in (old or {}).get("notes", []) if not redo & set(range(nt["ids"][0], nt["ids"][1] + 1))]
+    rows, notes = [], list(old_notes)
+    checks = {kk: (old or {}).get("checks", {}).get(kk, True) for kk in ("genre_kept", "register_kept", "no_new_flourish")}
+    for k, ch in enumerate(groups):
+        ids = ch["ids"]
+        if k not in got:
+            rows += [old_rows.get(i) or dict(_para_row(i, paras[i - 1], paras[i - 1]), residual=[]) for i in ids]
+            if not any(set(range(nt["ids"][0], nt["ids"][1] + 1)) & set(ids) for nt in old_notes):
+                notes.append({"ids": [ids[0], ids[-1]], "note": "아직 윤문 안 함", "audit": "", "pending": True})
+            continue
+        res = got[k]
         if res is None:  # 실패한 구간은 원문 유지
-            res = {"rows": [_para_row(i, paras[i - 1], paras[i - 1]) for i in ch["ids"]], "note": "윤문 실패 — 다시 누르세요.", "failed": True}
+            res = {"rows": [_para_row(i, paras[i - 1], paras[i - 1]) for i in ids], "note": "윤문 실패 — 다시 누르세요.", "failed": True}
         for r in res["rows"]:
             r["residual"] = [x for x in res.get("residual", []) if x["para"] == r["i"]]
         rows += res["rows"]
-        notes.append({"ids": [ch["ids"][0], ch["ids"][-1]], "note": res["note"], "audit": res.get("audit_summary", ""),
+        notes.append({"ids": [ids[0], ids[-1]], "note": res["note"], "audit": res.get("audit_summary", ""),
                       "failed": bool(res.get("failed"))})
         for kk in checks:
             checks[kk] = checks[kk] and res.get("checks", {}).get(kk, True)
+    notes.sort(key=lambda nt: nt["ids"][0])
     out = {"paras": rows, "notes": notes, "checks": checks}
     config.save(did, "03_윤문", "rewrite.json", out)
-    config.save(did, "04_검토", "decisions.json", {})  # 새 윤문이면 체크는 기본값부터
+    dec = config.load(did, "04_검토", "decisions.json") or {} if only is not None else {}
+    config.save(did, "04_검토", "decisions.json", {k: v for k, v in dec.items() if int(k) not in redo})  # 새로 윤문한 문단만 체크를 기본값부터
     d["status"] = "윤문완료"
     config.save_doc(d)
     s = audit.summary(paras, det, out, {}, target)

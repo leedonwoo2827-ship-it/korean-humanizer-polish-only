@@ -1,4 +1,4 @@
-"""대시보드 [체크한 글 이어서 진행] — 글마다 진단 → 윤문(→ 감사)을 끝까지. 퇴근 뒤 무인용.
+"""대시보드 [체크한 글 이어서 진행] — 글(또는 고른 절)마다 진단 → 윤문(→ 감사)을 끝까지. 퇴근 뒤 무인용.
 
   - 이미 끝난 단계는 건너뛰고, 실패 구간이 남은 단계만 다시 한다 (끝난 구간은 캐시라 호출하지 않음).
   - 한 글이 실패해도 다음 글로 넘어간다.
@@ -17,11 +17,11 @@ POLL_MIN = 30          # 풀리는 시각을 모를 때 다시 해 보는 간격
 CHUNK_MIN = 60         # 시각을 알아도 길게는 이만큼씩만 자고 확인
 AFTER_RESET_SEC = 90
 
-STATE = {"ids": [], "cur": None, "done": {}, "waiting": None}
+STATE = {"ids": [], "cur": None, "parts": {}, "done": {}, "waiting": None}
 
 
 def state():
-    return dict(STATE, done=dict(STATE["done"]))
+    return dict(STATE, done=dict(STATE["done"]), parts=dict(STATE["parts"]))
 
 
 def keep_awake(on=True):
@@ -34,13 +34,22 @@ def keep_awake(on=True):
         pass
 
 
-def todo(did):
-    """이 글에 남은 단계 — ['detect', 'rewrite'] 중."""
-    det = config.load(did, "02_탐지", "detect.json")
-    rw = config.load(did, "03_윤문", "rewrite.json")
-    redo_det = not det or any(c.get("failed") for c in det["chunks"])
-    redo_rw = redo_det or not rw or any(n.get("failed") for n in rw["notes"])
+def todo(did, only=None, det=None, rw=None, paras=None):
+    """이 글(only = 고른 문단 번호만)에 남은 단계 — ['detect', 'rewrite'] 중."""
+    det = det or config.load(did, "02_탐지", "detect.json")
+    rw = rw or config.load(did, "03_윤문", "rewrite.json")
+    paras = paras or config.load(did, "01_원문", "paragraphs.json") or []
+    want = only if only is not None else set(range(1, len(paras) + 1))
+    redo_det = not det or any((c.get("failed") or c.get("pending")) and want & set(c["ids"]) for c in det["chunks"])
+    redo_rw = redo_det or not rw or bool(want - humanize.done_paras(rw))
     return (["detect"] if redo_det else []) + (["rewrite"] if redo_rw else [])
+
+
+def part_status(did):
+    """대시보드의 절 행: [{k, title, start, end, chars, todo}]."""
+    paras = config.load(did, "01_원문", "paragraphs.json") or []
+    det, rw = config.load(did, "02_탐지", "detect.json"), config.load(did, "03_윤문", "rewrite.json")
+    return [dict(pt, todo=todo(did, set(range(pt["start"], pt["end"] + 1)), det, rw, paras)) for pt in humanize.parts(paras)]
 
 
 def _wait(e, deadline):
@@ -61,18 +70,29 @@ def _wait(e, deadline):
     return True
 
 
-def run(ids, do_audit=True):
+def run(items, do_audit=True):
+    """items = [(글 번호, 고른 절 번호 목록 | None = 전체)]"""
     hours = config.settings()["wait_hours"]
-    STATE.update(ids=list(ids), cur=None, done={}, waiting=None)
+    ids = [did for did, _ in items]
+    STATE.update(ids=ids, cur=None, parts={did: ks for did, ks in items}, done={}, waiting=None)
     print(f"[이어서 진행] {len(ids)}편 — 엔진 {config.ENGINES[config.settings()['engine']]} · 한도면 최대 {hours:g}시간 기다림")
     keep_awake(True)
     try:
-        for n, did in enumerate(ids, 1):
+        for n, (did, ks) in enumerate(items, 1):
             STATE["cur"] = did
             title = config.doc(did)["title"]
+            paras = config.load(did, "01_원문", "paragraphs.json") or []
+            only = humanize.picked(paras, ks)
+            if only == set():  # 글이 바뀌어 고른 절이 없어짐
+                print(f"[{n}/{len(ids)}] {did} {title} — 고른 절이 없습니다. 대시보드를 새로고침하고 다시 고르세요")
+                STATE["done"][did] = "fail"
+                continue
+            if ks is not None:
+                pts = humanize.parts(paras)
+                title += " — " + ", ".join(pts[k]["title"][:24] for k in ks if k < len(pts))
             deadline = time.time() + hours * 3600
             while True:
-                steps = todo(did)
+                steps = todo(did, only)
                 if not steps:
                     print(f"[{n}/{len(ids)}] {did} {title} — 이미 끝났습니다")
                     STATE["done"][did] = "ok"
@@ -80,9 +100,9 @@ def run(ids, do_audit=True):
                 print(f"[{n}/{len(ids)}] {did} {title} — " + " → ".join({"detect": "진단", "rewrite": "윤문"}[s] for s in steps))
                 try:
                     if "detect" in steps:
-                        humanize.detect(did)
-                    humanize.rewrite(did, do_audit=do_audit)
-                    STATE["done"][did] = "ok" if not todo(did) else "part"
+                        humanize.detect(did, only)
+                    humanize.rewrite(did, do_audit=do_audit, only=only)
+                    STATE["done"][did] = "ok" if not todo(did, only) else "part"
                     break
                 except LimitError as e:
                     print(f"  {e}")

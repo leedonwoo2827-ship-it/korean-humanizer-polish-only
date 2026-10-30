@@ -105,7 +105,7 @@ del{background:var(--del);color:var(--delfg);border-radius:2px}
 .iconbtn{padding:2px 7px;font-size:12px}
 .empty{padding:30px;text-align:center;color:var(--mute)}
 .dash td{vertical-align:middle}.dash tr.cur td{background:var(--wash)}.dash td.num,.dash th.num{text-align:right;font-variant-numeric:tabular-nums}
-.dash a{color:var(--fg)}.dash input[type=checkbox]{width:16px;height:16px;vertical-align:middle}
+.dash a{color:var(--fg)}.dash tr.sub td{font-size:12.5px;border-bottom-style:dashed}.dash input[type=checkbox]{width:16px;height:16px;vertical-align:middle}
 .warnbox{border:1px solid var(--warn);background:var(--warnbg);border-radius:10px;padding:8px 12px;margin:8px 0}
 .engsel{width:100%;margin:2px 0 8px;background:var(--rail-hover);color:var(--rail-fg);border-color:var(--rail-line);font-size:12px}
 @media (max-width:820px){body{display:block}.rail{width:auto;height:auto;position:static}.nav{max-height:240px}main{height:auto}.wrap{padding:16px}.grid2{grid-template-columns:1fr}}
@@ -313,9 +313,10 @@ function renderResult(){
   const items = det.items.filter(x => SEV==="all" || x.severity===SEV);
   const byPara = {}; for(const x of det.items) (byPara[x.para] = byPara[x.para]||[]).push(x);
   const counts = {}; for(const x of det.items) counts[x.code] = (counts[x.code]||0)+1;
-  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed).length;
+  const fails = (rw ? rw.notes : det.chunks).filter(c=>c.failed).length, pend = (rw ? rw.notes : det.chunks).filter(c=>c.pending).length;
   let h = `<div class="card"><h2><span class="n">3</span>결과 ${rw ? "· 등급" : "· 진단"}</h2><div id="sum">${renderSummary()}</div>
-    ${fails ? `<div class="alert"><b>⚠ ${fails}개 구간이 실패해 원문 그대로 두었습니다.</b> 같은 버튼을 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}</div>`;
+    ${fails ? `<div class="alert"><b>⚠ ${fails}개 구간이 실패해 원문 그대로 두었습니다.</b> 같은 버튼을 다시 누르면 실패한 구간만 다시 합니다.</div>` : ""}
+    ${pend ? `<div class="note">아직 ${rw ? "윤문" : "진단"}하지 않은 구간이 ${pend}개 있습니다 (대시보드에서 절을 골라 돌린 글). 등급은 지금까지 한 것 기준입니다. 나머지는 <a href="#/dash">대시보드</a>에서 절을 골라 이어서 하세요.</div>` : ""}</div>`;
   h += `<div class="card"><h2><span class="n">4</span>${rw ? "문단 대조 · 고를 것" : "원문 · AI 흔적 표시"}
       <span class="mute" style="font-weight:400">${rw ? "— 체크한 문단만 윤문본에 들어갑니다. 50% 넘게 바뀌었거나 숫자·인용이 빠진 문단은 기본으로 원문 유지" : ""}</span></h2>
     ${rw ? `<div class="row" style="margin-bottom:6px"><button class="iconbtn" onclick="setAll(true)">모두 채택</button><button class="iconbtn" onclick="setAll(false)">모두 원문 유지</button><button class="iconbtn" onclick="setAll(null)">기본값으로</button>
@@ -455,54 +456,77 @@ function bigWarn(c){
     단행본은 장(章)별로 나눠 넣으면 하나씩 확인하기도 쉽습니다.</div>`;
 }
 
-/* ---------- 대시보드: 체크한 글 이어서 진행 ---------- */
+/* ---------- 대시보드: 체크한 글·절 이어서 진행 ---------- */
+// PICK = {"01:0", "01:3", …}  글번호:절번호. 짧은 글은 절이 하나(0)라 글 체크 = 그 절 체크
 let PICK = (()=>{ try{ return new Set(JSON.parse(localStorage.getItem("khum.pick")||"[]")) }catch(e){ return new Set() } })();
+const FOLD = new Set();  // 접어 둔 글
 const savePick = () => { try{ localStorage.setItem("khum.pick", JSON.stringify([...PICK])) }catch(e){} };
 const STEP = {detect:"진단", rewrite:"윤문"};
 const DONE = {ok:["ok","끝"], part:["warn","일부 실패"], limit:["warn","한도로 멈춤"], stop:["bad","멈춤"], fail:["bad","실패"]};
+const pkey = (d, pt) => d.id + ":" + pt.k;
+const partsOf = d => d.parts && d.parts.length ? d.parts : [{k:0, title:"전체", chars:d.chars, todo:d.todo}];
+const pickedParts = d => partsOf(d).filter(pt => PICK.has(pkey(d, pt)));
+const inBatch = (d, pt) => { const b = APP.batch, ks = b.parts[d.id]; return b.ids.includes(d.id) && (ks == null || ks.includes(pt.k)) };
+function todoTags(todo){ return todo.length ? todo.map(s=>`<span class="tag plain">${STEP[s]} 남음</span>`).join(" ") : `<span class="tag">✓ 윤문 끝</span>` }
 function dashStatus(d){
   const b = APP.batch, run = APP.job.running && APP.job.name === "이어서 진행";
   if(run && b.cur === d.id) return b.waiting ? `<span class="tag warn">⏸ 한도 대기 · ${esc(b.waiting)}에 다시</span>` : `<span class="tag warn">⏳ 진행 중</span>`;
   if(run && b.ids.includes(d.id) && !(d.id in b.done)) return `<span class="tag plain">대기열</span>`;
   if(d.id in b.done && b.done[d.id] !== "ok"){ const [c, t] = DONE[b.done[d.id]]; return `<span class="tag ${c}">${t}</span>` }
-  if(!d.todo.length) return `<span class="tag">✓ 윤문 끝</span>`;
-  return d.todo.map(s=>`<span class="tag plain">${STEP[s]} 남음</span>`).join(" ") + (d.failed ? ` <span class="tag bad">실패 ${d.failed}구간</span>` : "");
+  return todoTags(d.todo) + (d.failed ? ` <span class="tag bad">실패 ${d.failed}구간</span>` : "");
+}
+function partStatus(d, pt){
+  const b = APP.batch, run = APP.job.running && APP.job.name === "이어서 진행";
+  if(run && inBatch(d, pt) && pt.todo.length) return b.cur === d.id ? (b.waiting ? `<span class="tag warn">⏸ 한도 대기</span>` : `<span class="tag warn">⏳ 진행 중</span>`) : `<span class="tag plain">대기열</span>`;
+  return todoTags(pt.todo);
 }
 function renderDash(){
-  const j = APP.job, run = j.running, ids = APP.docs.map(d=>d.id);
-  for(const id of [...PICK]) if(!ids.includes(id)) PICK.delete(id);
-  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.error, APP.settings, [...PICK], ALERT_OFF]);
+  const j = APP.job, run = j.running;
+  const keys = new Set(APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))));
+  for(const k of [...PICK]) if(!keys.has(k)) PICK.delete(k);
+  const key = "dash|" + JSON.stringify([APP.docs, APP.batch, run, j.error, APP.settings, [...PICK], [...FOLD], ALERT_OFF]);
   if(rendered === key){ dashLog(); return }
   rendered = key;
-  const picked = APP.docs.filter(d=>PICK.has(d.id));
   const audit = $("d_audit") ? $("d_audit").checked : true;
-  const total = picked.reduce((a,d)=>a+calls(d.chars, d.todo, audit), 0);
-  const s = APP.settings;
+  const left = (d, ps) => ps.reduce((a,pt)=>a+(pt.todo.length ? calls(pt.chars, pt.todo, audit) : 0), 0);
+  const docs = APP.docs.filter(d => pickedParts(d).length);
+  const nparts = docs.reduce((a,d)=>a+pickedParts(d).length, 0);
+  const total = docs.reduce((a,d)=>a+left(d, pickedParts(d)), 0);
+  const s = APP.settings, dis = run ? "disabled" : "";
+  const docRow = d => {
+    const ps = partsOf(d), n = pickedParts(d).length, multi = ps.length > 1, open = multi && !FOLD.has(d.id);
+    let h = `<tr class="${APP.batch.cur===d.id && run?"cur":""}"><td><input type="checkbox" ${n===ps.length?"checked":""} data-ind="${n && n<ps.length?1:""}" ${dis} onchange="pickDoc('${esc(d.id)}',this.checked)"></td>
+      <td><b>${esc(d.id)}</b></td><td>${multi ? `<button class="iconbtn" onclick="fold('${esc(d.id)}')" title="절 ${open?"접기":"펴기"}">${open?"▾":"▸"} ${ps.length}부분</button> ` : ""}<a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a><div class="mute" style="font-size:12px">${esc(d.genre||"")}</div></td>
+      <td class="num">${(d.chars||0).toLocaleString()}</td><td class="num">${d.todo.length ? left(d, ps) : "-"}</td>
+      <td>${dashStatus(d)}</td><td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td>
+      <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b>` : '<span class="mute">-</span>'}</td></tr>`;
+    if(open) h += ps.map(pt => `<tr class="sub"><td style="padding-left:22px"><input type="checkbox" ${PICK.has(pkey(d,pt))?"checked":""} ${dis} onchange="pick('${esc(pkey(d,pt))}',this.checked)"></td>
+      <td class="mute">${pt.k}</td><td style="padding-left:22px">${esc(pt.title)} <span class="mute" style="font-size:12px">· 문단 ${pt.start}–${pt.end}</span></td>
+      <td class="num">${pt.chars.toLocaleString()}</td><td class="num">${pt.todo.length ? calls(pt.chars, pt.todo, audit) : "-"}</td><td>${partStatus(d, pt)}</td><td></td><td></td></tr>`).join("");
+    return h;
+  };
   $("view").innerHTML = `<h1>대시보드</h1>
-    <div class="sub">글을 체크하고 [이어서 진행]을 누르면 한 편씩 <b>진단 → 윤문 → 감사</b>까지 끝까지 돌립니다. 이미 끝난 단계는 건너뛰고, 실패한 구간만 다시 합니다.
-      사용 한도에 걸리면 기다렸다가 같은 글부터 이어서 하므로 퇴근 전에 걸어 두면 됩니다.</div>
+    <div class="sub">글이나 절을 체크하고 [이어서 진행]을 누르면 하나씩 <b>진단 → 윤문 → 감사</b>까지 끝까지 돌립니다. 이미 끝난 부분은 건너뛰고, 실패한 구간만 다시 합니다.
+      긴 글(단행본)은 절·장 제목으로 나눠 보여 주므로 절마다 골라 돌릴 수 있습니다. 사용 한도에 걸리면 기다렸다가 이어서 하므로 퇴근 전에 걸어 두면 됩니다.</div>
     <div class="card"><h2><span class="n">1</span>엔진 · 사용 한도</h2>
       <div class="grid2">
         <span>엔진</span><div class="row">${engineSelect("")}<span class="mute">자동 = Codex(ChatGPT)로 하다가 한도에 걸리면 Claude로 넘어갑니다.</span></div>
         <span>한도면</span><div class="row">최대 <input type="number" id="d_wait" min="0" max="48" step="1" value="${s.wait_hours}" style="width:70px" onchange="saveSettings({wait_hours:this.value})"> 시간까지 기다렸다가 이어서
           <span class="mute">0 = 기다리지 않고 바로 멈춤. 기다리는 동안 콘솔 창(run.bat)은 켜 두세요(PC 절전은 막습니다).</span></div>
       </div></div>
-    <div class="card"><h2><span class="n">2</span>글 고르기 <span class="mute" style="font-weight:400">— ${picked.length}편 체크 · 호출 약 ${total}회</span></h2>
-      ${APP.docs.length ? `<table class="dash"><thead><tr><th><input type="checkbox" ${picked.length && picked.length===APP.docs.length?"checked":""} onchange="pickAll(this.checked)" ${run?"disabled":""} title="모두"></th>
+    <div class="card"><h2><span class="n">2</span>글 · 절 고르기 <span class="mute" style="font-weight:400">— ${docs.length}편 ${nparts}부분 체크 · 호출 약 ${total}회</span></h2>
+      ${APP.docs.length ? `<table class="dash"><thead><tr><th><input type="checkbox" ${keys.size && PICK.size===keys.size?"checked":""} onchange="pickAll(this.checked)" ${dis} title="모두"></th>
         <th>번호</th><th>제목</th><th class="num">글자수</th><th class="num">남은 호출</th><th>상태</th><th>흔적</th><th>등급</th></tr></thead><tbody>
-        ${APP.docs.map(d=>`<tr class="${APP.batch.cur===d.id && run?"cur":""}"><td><input type="checkbox" ${PICK.has(d.id)?"checked":""} ${run?"disabled":""} onchange="pick('${esc(d.id)}',this.checked)"></td>
-          <td><b>${esc(d.id)}</b></td><td><a href="#/d/${encodeURIComponent(d.id)}">${esc(d.title)}</a><div class="mute" style="font-size:12px">${esc(d.genre||"")}</div></td>
-          <td class="num">${(d.chars||0).toLocaleString()}</td><td class="num">${d.todo.length ? calls(d.chars, d.todo, audit) : "-"}</td>
-          <td>${dashStatus(d)}</td><td>${d.found ? `<span class="sev S1">S1 ${d.found.S1}</span> <span class="sev S2">S2 ${d.found.S2}</span>` : '<span class="mute">-</span>'}</td>
-          <td>${d.grade ? `<b class="g${d.grade}">${d.grade}</b>` : '<span class="mute">-</span>'}</td></tr>`).join("")}</tbody></table>`
+        ${APP.docs.map(docRow).join("")}</tbody></table>`
         : `<div class="empty">아직 글이 없습니다. <a href="#/new">새 글 넣기</a>에서 넣으세요.</div>`}
       ${bigWarn(total)}
       <div class="row" style="margin-top:10px">
-        ${run ? `<button class="big" onclick="stopJob()">■ 멈춤</button>` : `<button class="big primary" onclick="runBatch()" ${picked.length?"":"disabled"}>▶ 체크한 ${picked.length}편 이어서 진행</button>`}
-        <label class="mute"><input type="checkbox" id="d_audit" ${audit?"checked":""} ${run?"disabled":""} onchange="rendered=null;renderDash()"> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
+        ${run ? `<button class="big" onclick="stopJob()">■ 멈춤</button>` : `<button class="big primary" onclick="runBatch()" ${nparts?"":"disabled"}>▶ 체크한 ${docs.length}편${nparts > docs.length ? ` ${nparts}부분` : ""} 이어서 진행</button>`}
+        <label class="mute"><input type="checkbox" id="d_audit" ${audit?"checked":""} ${dis} onchange="rendered=null;renderDash()"> 윤문 뒤 감사(남은 흔적 다시 찾기)</label>
       </div>
       <div class="mute" style="margin-top:6px">윤문이 끝나면 글마다 들어가서 문단별로 채택을 확인하고 [반영]을 누르세요. 반영은 자동으로 하지 않습니다.</div>
       <div id="dlog"></div></div>`;
+  document.querySelectorAll("[data-ind='1']").forEach(e => e.indeterminate = true);
   $("dlog").dataset.sig = ""; dashLog();
 }
 function dashLog(){
@@ -515,12 +539,16 @@ function dashLog(){
     : `<details><summary class="mute">${j.error ? "⚠" : "✓"} ${esc(j.name)}${j.uid ? " · "+esc(j.uid) : ""} ${j.error ? "중단" : "끝"} (${esc(j.ended||"")}) — 로그 보기</summary>${log}</details>`) + `</div>`;
   const lg = el.querySelector(".log"); lg.scrollTop = lg.scrollHeight;
 }
-function pick(id, on){ on ? PICK.add(id) : PICK.delete(id); savePick(); renderDash() }
-function pickAll(on){ PICK = new Set(on ? APP.docs.map(d=>d.id) : []); savePick(); renderDash() }
+function pick(k, on){ on ? PICK.add(k) : PICK.delete(k); savePick(); renderDash() }
+function pickDoc(id, on){ const d = APP.docs.find(x=>x.id===id); for(const pt of partsOf(d)) on ? PICK.add(pkey(d,pt)) : PICK.delete(pkey(d,pt)); savePick(); renderDash() }
+function pickAll(on){ PICK = new Set(on ? APP.docs.flatMap(d => partsOf(d).map(pt => pkey(d, pt))) : []); savePick(); renderDash() }
+function fold(id){ FOLD.has(id) ? FOLD.delete(id) : FOLD.add(id); rendered = null; renderDash() }
 async function runBatch(){
-  const ids = APP.docs.filter(d=>PICK.has(d.id)).map(d=>d.id);
-  if(!confirm(`${ids.length}편을 진단 → 윤문${$("d_audit").checked ? " → 감사" : ""}까지 차례로 돌립니다. 계속할까요?`)) return;
-  try{ await api("/api/batch",{method:"POST",body:JSON.stringify({ids, audit:$("d_audit").checked})}); toast("시작했습니다. 창을 닫아도 계속 진행됩니다.", 5000); refresh() }
+  const items = APP.docs.filter(d => pickedParts(d).length).map(d => { const ps = partsOf(d), ks = pickedParts(d).map(pt=>pt.k);
+    return {id:d.id, parts: ks.length === ps.length ? null : ks} });
+  const n = items.reduce((a,it)=>a+(it.parts ? it.parts.length : partsOf(APP.docs.find(d=>d.id===it.id)).length), 0);
+  if(!confirm(`${items.length}편(${n}부분)을 진단 → 윤문${$("d_audit").checked ? " → 감사" : ""}까지 차례로 돌립니다. 계속할까요?`)) return;
+  try{ await api("/api/batch",{method:"POST",body:JSON.stringify({items, audit:$("d_audit").checked})}); toast("시작했습니다. 창을 닫아도 계속 진행됩니다.", 5000); refresh() }
   catch(e){ toast(e.message, 8000) }
 }
 async function saveSettings(patch){
