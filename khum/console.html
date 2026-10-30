@@ -135,8 +135,8 @@ const api = async (url, opt) => { const r = await fetch(url, opt); const j = awa
 function toast(t, ms=3500){ const e=$("toast"); e.textContent=t; e.style.display="block"; e.onclick=()=>e.style.display="none"; clearTimeout(e._t); e._t=setTimeout(()=>e.style.display="none",ms) }
 
 let APP = null, DS = null, DEC = {}, timer = null, wasRunning = false, rendered = null, SEV = "all";
-// #/d/<글>/<단계>  단계 = setup(① 원고) · result(③ 교정 결과 보기) · errata(④ 정오 판정) · download(⑤ 정오표 받기).  ② 교정 돌리기 = #/dash (대시보드)
-const STAGE_NAV = [["setup","① 원고"], ["dash","② 교정 돌리기"], ["result","③ 교정 결과 보기"], ["errata","④ 정오 판정"], ["download","⑤ 정오표 받기"]];  // longform 의 ① 원고 ② 교정 돌리기 ③ 교정 결과 보기 ④ 올리기 + 받기
+// #/d/<글>/<단계>  단계 = setup(① 원고) · result(③ 교열 결과) · errata(④ 정오 판정) · download(⑤ 정오표 받기).  ② 판정모델 교열 = #/dash (대시보드)
+const STAGE_NAV = [["setup","① 원고"], ["dash","② 판정모델 교열"], ["result","③ 교열 결과"], ["errata","④ 정오 판정"], ["download","⑤ 정오표 받기"]];  // longform 의 ① 원고 ② 판정모델 교열 ③ 교열 결과 ④ 올리기 + 받기
 const route = () => { const m = location.hash.match(/^#\/d\/([^/]+)(?:\/(\w+))?$/);
   return m ? {view:"doc", id:decodeURIComponent(m[1]), stage:["setup","result","errata","download"].includes(m[2]) ? m[2] : "setup"} : location.hash === "#/dash" ? {view:"dash"} : {view:"new"} };
 let PART = "all", KEEP = 0;  // 위쪽 절 탭: all 또는 절 번호 (KEEP: 대시보드에서 절을 눌러 들어올 때 유지)
@@ -152,7 +152,7 @@ window.addEventListener("hashchange", () => { rendered = null; const r = route()
 async function refresh(){
   try{
     APP = await api("/api/state");
-    if(!location.hash && APP.docs.length){ location.hash = "#/dash"; return }  // 책이 있으면 ② 교정 돌리기부터
+    if(!location.hash && APP.docs.length){ location.hash = "#/dash"; return }  // 책이 있으면 ② 판정모델 교열부터
     const r = route();
     const finished = wasRunning && !APP.job.running;
     if(r.view === "doc" && (!DS || DS.doc.id !== r.id || finished)){
@@ -168,7 +168,7 @@ async function refresh(){
 function gchip(g){ return g ? `<span class="chip ${g<="B"?"ok":g==="C"?"warn":"bad"}">등급 ${g}</span>` : "" }
 function renderNav(){
   const r = route();
-  // 왼쪽: 단계 ① 원고 · ② 교정 돌리기 · ③ 교정 결과 보기 · ④ 정오 판정 · ⑤ 정오표 받기 (longform 위쪽 탭을 옆으로). 책 고르기는 아래쪽(bookFoot)
+  // 왼쪽: 단계 ① 원고 · ② 판정모델 교열 · ③ 교열 결과 · ④ 정오 판정 · ⑤ 정오표 받기 (longform 위쪽 탭을 옆으로). 책 고르기는 아래쪽(bookFoot)
   const id = curId(), d = APP.docs.find(x=>x.id===id);
   let h = "";
   if(d){
@@ -349,7 +349,7 @@ function renderSummary(){
   return h;
 }
 
-let RV = "audit";  // ③ 교정 결과 보기 안의 보기: audit(감사 · 남은 흔적) · detect(진단 · 찾은 흔적)
+let RV = "audit";  // ③ 교열 결과 안의 보기: audit(감사 · 남은 흔적) · detect(진단 · 찾은 흔적)
 function renderResult(){
   const el = $("result"); if(!el) return;
   const stage = route().stage;
@@ -401,7 +401,7 @@ function renderResult(){
     } else h += `<div class="card empty">아직 윤문 전입니다. <a href="#/dash">대시보드</a>에서 「2 윤문」 · 「3 감사」를 누르세요.</div>`;
   }
   if(stage === "download"){
-    h += rw && rw.edits ? getCard() : `<div class="card empty">아직 정오표를 만들 수정 후보가 없습니다. <a href="#/dash">② 교정 돌리기</a>에서 「2 윤문」까지 돌리세요.</div>`;
+    h += rw && rw.edits ? getCard() : `<div class="card empty">아직 정오표를 만들 수정 후보가 없습니다. <a href="#/dash">② 판정모델 교열</a>에서 「2 윤문」까지 돌리세요.</div>`;
   }
   if(stage === "errata"){
     if(rw && rw.edits) h += alerts + editsCard();
@@ -696,7 +696,7 @@ function renderDash(){
       ${STAGES.map(([k]) => `<td>${stageCell(d, [pt], k)}</td>`).join("")}
       <td>${pt.todo && !pt.todo.length ? `<a href="#/d/${encodeURIComponent(d.id)}/errata" onclick="PART='${pt.k}';KEEP=1"><span class="tag">체크하러 가기 →</span></a>` : '<span class="mute">-</span>'}</td></tr>`).join("");
   };
-  $("view").innerHTML = `<h1>② 교정 돌리기 <span class="mute" style="font-weight:400;font-size:15px">· ${esc(BOOKS()[0] ? BOOKS()[0].id+" "+BOOKS()[0].title : "")}</span></h1>
+  $("view").innerHTML = `<h1>② 판정모델 교열 <span class="mute" style="font-weight:400;font-size:15px">· ${esc(BOOKS()[0] ? BOOKS()[0].id+" "+BOOKS()[0].title : "")}</span></h1>
     <div class="sub">글이나 절을 체크하고 단계 버튼을 누르면 고른 부분에만 그 단계를 합니다. 단계를 나눠 두었으니 <b>Codex 한도를 다른 일과 나눠 쓰며 시간대를 갈라 돌릴 수</b> 있습니다.
       한 단계 버튼은 그 단계만 하고(앞 단계가 안 된 곳은 건너뜀), ▶ 버튼은 앞 단계부터 차례로 합니다. 이미 된 곳은 건너뛰고, 실패한 구간만 다시 합니다.</div>
     ${acctLine()}
